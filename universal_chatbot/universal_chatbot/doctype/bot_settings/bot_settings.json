@@ -1,0 +1,121 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-11-08 04:20:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "general_section",
+  "enabled",
+  "allow_guest_conversations",
+  "column_break_1",
+  "log_level",
+  "retention_days",
+  "limits_section",
+  "default_session_timeout",
+  "max_message_length",
+  "column_break_2",
+  "rate_limit_enabled",
+  "default_rate_limit"
+ ],
+ "fields": [
+  {
+   "fieldname": "general_section",
+   "fieldtype": "Section Break",
+   "label": "General Settings"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enable Chatbot Engine"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_guest_conversations",
+   "fieldtype": "Check",
+   "label": "Allow Guest / Anonymous Conversations"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "INFO",
+   "fieldname": "log_level",
+   "fieldtype": "Select",
+   "label": "Log Level",
+   "options": "DEBUG\nINFO\nWARNING\nERROR"
+  },
+  {
+   "default": "90",
+   "description": "Number of days before conversation history is archived or purged (0 for indefinite)",
+   "fieldname": "retention_days",
+   "fieldtype": "Int",
+   "label": "Conversation Retention (Days)"
+  },
+  {
+   "fieldname": "limits_section",
+   "fieldtype": "Section Break",
+   "label": "Session & Rate Limits"
+  },
+  {
+   "default": "30",
+   "description": "Session inactivity expiration in minutes",
+   "fieldname": "default_session_timeout",
+   "fieldtype": "Int",
+   "label": "Default Session Timeout (Minutes)"
+  },
+  {
+   "default": "1000",
+   "description": "Maximum characters allowed per message",
+   "fieldname": "max_message_length",
+   "fieldtype": "Int",
+   "label": "Max Message Length"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "rate_limit_enabled",
+   "fieldtype": "Check",
+   "label": "Rate Limiting Enabled"
+  },
+  {
+   "default": "60",
+   "description": "Maximum requests per minute per IP/Session",
+   "fieldname": "default_rate_limit",
+   "fieldtype": "Int",
+   "label": "Default Rate Limit (RPM)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-11-08 04:20:00.000000",
+ "modified_by": "Administrator",
+ "module": "Universal Chatbot",
+ "name": "Bot Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

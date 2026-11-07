@@ -1,0 +1,138 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:bot_name",
+ "creation": "2026-11-08 04:20:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "overview_tab",
+  "bot_name",
+  "title",
+  "status",
+  "is_published",
+  "column_break_1",
+  "avatar",
+  "default_language",
+  "active_version",
+  "primary_flow",
+  "section_break_messages",
+  "greeting_message",
+  "fallback_message",
+  "description"
+ ],
+ "fields": [
+  {
+   "fieldname": "overview_tab",
+   "fieldtype": "Tab Break",
+   "label": "Overview"
+  },
+  {
+   "description": "Unique identifier slug (e.g. support-bot, sales-assistant)",
+   "fieldname": "bot_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Bot Name / Slug",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "default": "Draft",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nActive\nInactive\nArchived",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_published",
+   "fieldtype": "Check",
+   "label": "Is Published"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "avatar",
+   "fieldtype": "Attach Image",
+   "label": "Avatar"
+  },
+  {
+   "default": "en",
+   "fieldname": "default_language",
+   "fieldtype": "Data",
+   "label": "Default Language"
+  },
+  {
+   "fieldname": "active_version",
+   "fieldtype": "Link",
+   "label": "Active Version",
+   "options": "Bot Version"
+  },
+  {
+   "fieldname": "primary_flow",
+   "fieldtype": "Data",
+   "label": "Primary Flow"
+  },
+  {
+   "fieldname": "section_break_messages",
+   "fieldtype": "Section Break",
+   "label": "Default Messages & Content"
+  },
+  {
+   "default": "Hello! How can I help you today?",
+   "fieldname": "greeting_message",
+   "fieldtype": "Small Text",
+   "label": "Greeting Message"
+  },
+  {
+   "default": "I'm sorry, I didn't understand that. Could you please rephrase?",
+   "fieldname": "fallback_message",
+   "fieldtype": "Small Text",
+   "label": "Fallback Message"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-08 04:20:00.000000",
+ "modified_by": "Administrator",
+ "module": "Universal Chatbot",
+ "name": "Chatbot",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

@@ -1,0 +1,156 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:DEP-{chatbot}-{deployment_name}",
+ "creation": "2026-11-08 04:20:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "general_tab",
+  "deployment_name",
+  "chatbot",
+  "channel",
+  "bot_version",
+  "column_break_1",
+  "status",
+  "deployment_key",
+  "auth_mode",
+  "rate_limit_per_minute",
+  "security_section",
+  "allowed_domains",
+  "appearance_tab",
+  "theme_config",
+  "custom_css"
+ ],
+ "fields": [
+  {
+   "fieldname": "general_tab",
+   "fieldtype": "Tab Break",
+   "label": "General"
+  },
+  {
+   "fieldname": "deployment_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Deployment Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "chatbot",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Chatbot",
+   "options": "Chatbot",
+   "reqd": 1
+  },
+  {
+   "fieldname": "channel",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Channel",
+   "options": "Bot Channel",
+   "reqd": 1
+  },
+  {
+   "fieldname": "bot_version",
+   "fieldtype": "Link",
+   "label": "Bot Version",
+   "options": "Bot Version"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Active",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Active\nInactive\nMaintenance",
+   "reqd": 1
+  },
+  {
+   "description": "Public unique key for widget integration",
+   "fieldname": "deployment_key",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Deployment Key",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "default": "Anonymous",
+   "fieldname": "auth_mode",
+   "fieldtype": "Select",
+   "label": "Authentication Mode",
+   "options": "Anonymous\nAuthenticated\nToken"
+  },
+  {
+   "default": "60",
+   "fieldname": "rate_limit_per_minute",
+   "fieldtype": "Int",
+   "label": "Rate Limit (Req/min)"
+  },
+  {
+   "fieldname": "security_section",
+   "fieldtype": "Section Break",
+   "label": "Allowed Domains & Security"
+  },
+  {
+   "default": "*",
+   "description": "Comma-separated list of allowed origin domains or * for any domain",
+   "fieldname": "allowed_domains",
+   "fieldtype": "Small Text",
+   "label": "Allowed Domains"
+  },
+  {
+   "fieldname": "appearance_tab",
+   "fieldtype": "Tab Break",
+   "label": "Appearance"
+  },
+  {
+   "description": "JSON object defining primaryColor, title, position, launcherIcon, etc.",
+   "fieldname": "theme_config",
+   "fieldtype": "Code",
+   "label": "Theme Config (JSON)",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "custom_css",
+   "fieldtype": "Code",
+   "label": "Custom CSS",
+   "options": "CSS"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-08 04:20:00.000000",
+ "modified_by": "Administrator",
+ "module": "Universal Chatbot",
+ "name": "Bot Deployment",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
