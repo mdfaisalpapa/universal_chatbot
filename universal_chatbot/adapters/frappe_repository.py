@@ -1,7 +1,7 @@
 """Frappe database repository adapter for Universal Chatbot.
 
 Implements ConversationRepositoryInterface to isolate frappe dependencies
-from the core conversational engine.
+from the core conversational and flow engines.
 """
 
 import json
@@ -10,9 +10,16 @@ import frappe
 from frappe.utils import now_datetime
 from universal_chatbot.core.exceptions import (
     ConversationNotFoundError,
+    FlowExecutionError,
     SecurityValidationError,
 )
 from universal_chatbot.core.interfaces import ConversationRepositoryInterface
+from universal_chatbot.flow.schema import (
+    FlowDefinition,
+    NodeDefinition,
+    TransitionDefinition,
+    VariableDefinition,
+)
 
 
 class FrappeConversationRepository(ConversationRepositoryInterface):
@@ -281,3 +288,141 @@ class FrappeConversationRepository(ConversationRepositoryInterface):
                 except Exception:
                     pass
         return events
+
+    def get_flow_definition(self, flow_id: str) -> FlowDefinition:
+        """Fetch a Chatbot Flow with its Nodes, Transitions, and Variables
+
+        translated into a pure Python FlowDefinition.
+        """
+        if not frappe.db.exists("Chatbot Flow", flow_id):
+            raise FlowExecutionError(f"Chatbot Flow '{flow_id}' not found")
+
+        flow_doc = frappe.get_doc("Chatbot Flow", flow_id)
+
+        # 1. Fetch nodes
+        node_docs = frappe.get_all(
+            "Flow Node",
+            filters={"flow": flow_doc.name},
+            fields=["name", "node_id", "node_type", "configuration"],
+        )
+
+        nodes: Dict[str, NodeDefinition] = {}
+        doc_name_to_node_id: Dict[str, str] = {}
+        start_node_id = None
+
+        for n in node_docs:
+            nid = n.node_id
+            doc_name_to_node_id[n.name] = nid
+            cfg = {}
+            if n.configuration:
+                try:
+                    cfg = json.loads(n.configuration)
+                except Exception:
+                    cfg = {}
+
+            nodes[nid] = NodeDefinition(
+                node_id=nid,
+                node_type=n.node_type,
+                configuration=cfg,
+            )
+            if n.node_type == "Start" and not start_node_id:
+                start_node_id = nid
+
+        # 2. Fetch transitions
+        node_doc_names = list(doc_name_to_node_id.keys())
+        transitions: List[TransitionDefinition] = []
+
+        if node_doc_names:
+            trans_docs = frappe.get_all(
+                "Flow Transition",
+                filters={"source_node": ["in", node_doc_names]},
+                fields=["source_node", "target_node", "condition"],
+            )
+
+            for t in trans_docs:
+                src_id = doc_name_to_node_id.get(t.source_node)
+                tgt_id = doc_name_to_node_id.get(t.target_node)
+                if not src_id or not tgt_id:
+                    continue
+
+                cond = t.condition
+                if cond and isinstance(cond, str) and cond.strip().startswith("{"):
+                    try:
+                        cond = json.loads(cond)
+                    except Exception:
+                        pass
+
+                transitions.append(
+                    TransitionDefinition(
+                        source_node=src_id,
+                        target_node=tgt_id,
+                        condition=cond,
+                    )
+                )
+
+        # 3. Fetch variables
+        var_docs = frappe.get_all(
+            "Flow Variable",
+            filters={"flow": flow_doc.name},
+            fields=["variable_name", "data_type", "default_value"],
+        )
+
+        variables: Dict[str, VariableDefinition] = {}
+        for v in var_docs:
+            variables[v.variable_name] = VariableDefinition(
+                name=v.variable_name,
+                data_type=v.data_type or "String",
+                default_value=v.default_value,
+            )
+
+        return FlowDefinition(
+            flow_id=flow_doc.name,
+            name=flow_doc.flow_name,
+            version=flow_doc.version or "1.0.0",
+            nodes=nodes,
+            transitions=transitions,
+            variables=variables,
+            start_node_id=start_node_id,
+        )
+
+    def save_flow_execution(
+        self,
+        conversation_id: str,
+        flow_id: str,
+        current_node: Optional[str],
+        status: str,
+        execution_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Upsert flow execution record."""
+        # Normalize status to Title Case to match DocType Select options
+        status_map = {
+            "running": "Running",
+            "paused": "Paused",
+            "completed": "Completed",
+            "failed": "Failed",
+        }
+        normalized_status = status_map.get(status.lower(), status.capitalize())
+
+        ctx_json = json.dumps(execution_context or {})
+        existing = frappe.db.get_value(
+            "Flow Execution",
+            {"conversation": conversation_id, "flow": flow_id},
+            "name",
+        )
+        if existing:
+            doc = frappe.get_doc("Flow Execution", existing)
+            doc.current_node = current_node or ""
+            doc.status = normalized_status
+            doc.execution_context = ctx_json
+            doc.save(ignore_permissions=True)
+        else:
+            doc = frappe.get_doc({
+                "doctype": "Flow Execution",
+                "conversation": conversation_id,
+                "flow": flow_id,
+                "current_node": current_node or "",
+                "status": normalized_status,
+                "execution_context": ctx_json,
+            }).insert(ignore_permissions=True)
+
+        return doc.as_dict()

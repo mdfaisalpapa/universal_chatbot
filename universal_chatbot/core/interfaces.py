@@ -14,6 +14,7 @@ from universal_chatbot.core.protocol import (
     OutgoingMessage,
     OutgoingResponse,
 )
+from universal_chatbot.flow.schema import FlowDefinition
 
 
 class BaseChannelAdapter(ABC):
@@ -66,14 +67,13 @@ class BaseConnector(ABC):
 class ConversationRepositoryInterface(ABC):
     """Abstract persistence adapter contract for managing contacts,
 
-    identities, conversations, state, messages, and audit events.
+    identities, conversations, state, messages, audit events, and flows.
     """
 
     @abstractmethod
     def get_or_create_contact(
         self, display_name: str, contact_status: str = "Active", email: Optional[str] = None, phone: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Create or fetch a contact by ID."""
         pass
 
     @abstractmethod
@@ -84,17 +84,12 @@ class ConversationRepositoryInterface(ABC):
         external_user_id: str,
         verification_status: str = "Anonymous",
     ) -> Dict[str, Any]:
-        """Explicitly map an external channel user ID to an existing contact.
-
-        Identity resolution across channels is strictly explicit.
-        """
         pass
 
     @abstractmethod
     def get_contact_by_channel_identity(
         self, channel: str, external_user_id: str
     ) -> Optional[Dict[str, Any]]:
-        """Lookup contact linked to this channel identity."""
         pass
 
     @abstractmethod
@@ -106,22 +101,18 @@ class ConversationRepositoryInterface(ABC):
         channel: str,
         status: str = "Active",
     ) -> Dict[str, Any]:
-        """Create a new conversation session."""
         pass
 
     @abstractmethod
     def get_conversation(self, conversation_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve conversation record by ID."""
         pass
 
     @abstractmethod
     def update_conversation_status(self, conversation_id: str, status: str) -> None:
-        """Update conversation status (Active, Paused, Closed, Expired)."""
         pass
 
     @abstractmethod
     def touch_conversation(self, conversation_id: str) -> None:
-        """Update last_activity timestamp for a conversation."""
         pass
 
     @abstractmethod
@@ -133,12 +124,10 @@ class ConversationRepositoryInterface(ABC):
         context: Optional[Dict[str, Any]] = None,
         active_flow_version: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Save/upsert flow state for pause and resume."""
         pass
 
     @abstractmethod
     def get_state(self, conversation_id: str) -> Optional[Dict[str, Any]]:
-        """Retrieve current flow state (variables, context, current_node)."""
         pass
 
     @abstractmethod
@@ -151,12 +140,10 @@ class ConversationRepositoryInterface(ABC):
         external_message_id: Optional[str] = None,
         status: str = "Sent",
     ) -> Dict[str, Any]:
-        """Persist inbound or outbound message."""
         pass
 
     @abstractmethod
     def get_messages(self, conversation_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """Fetch chronological message history."""
         pass
 
     @abstractmethod
@@ -166,10 +153,27 @@ class ConversationRepositoryInterface(ABC):
         event_type: str,
         details: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Append an audit trail event for analytics or debugging."""
         pass
 
     @abstractmethod
     def get_events(self, conversation_id: str, limit: int = 50) -> List[Dict[str, Any]]:
-        """Retrieve conversation audit events."""
+        pass
+
+    @abstractmethod
+    def get_flow_definition(self, flow_id: str) -> FlowDefinition:
+        """Fetch a Chatbot Flow with its Nodes, Transitions, and Variables
+
+        translated into a pure Python FlowDefinition.
+        """
+        pass
+
+    @abstractmethod
+    def save_flow_execution(
+        self,
+        conversation_id: str,
+        flow_id: str,
+        current_node: Optional[str],
+        status: str,
+        execution_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         pass
