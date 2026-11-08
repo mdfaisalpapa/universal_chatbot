@@ -427,8 +427,19 @@ class FrappeConversationRepository(ConversationRepositoryInterface):
 
         return doc.as_dict()
 
-    def execute_action(self, action_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute an Integration Action by instantiating the connector from DocType configurations."""
+    def execute_action(
+        self,
+        action_name: str,
+        parameters: Dict[str, Any],
+        conversation_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute an Integration Action by instantiating the connector from DocType configurations
+
+        and record an Action Execution audit log in the database.
+        """
+        import time
+
+        start_time = time.time()
         action_name_clean = (action_name or "").strip()
         action_docname = frappe.db.get_value(
             "Integration Action",
@@ -485,7 +496,39 @@ class FrappeConversationRepository(ConversationRepositoryInterface):
             },
         )
 
-        res = connector.execute(action_name_clean, parameters)
-        if isinstance(res, dict) and output_mapping:
-            res["_action_output_mapping"] = output_mapping
-        return res
+        conv_ref = conversation_id
+        if not conv_ref or not frappe.db.exists("Chat Conversation", conv_ref):
+            conv_ref = frappe.db.get_value(
+                "Chat Conversation", {}, "name", order_by="creation desc"
+            )
+
+        exec_status = "Success"
+        error_msg = ""
+        res: Dict[str, Any] = {}
+
+        try:
+            res = connector.execute(action_name_clean, parameters)
+            if isinstance(res, dict) and output_mapping:
+                res["_action_output_mapping"] = output_mapping
+            return res
+        except Exception as e:
+            exec_status = "Failed"
+            error_msg = str(e)
+            raise e
+        finally:
+            elapsed = time.time() - start_time
+            if conv_ref and frappe.db.exists("Chat Conversation", conv_ref):
+                try:
+                    frappe.get_doc({
+                        "doctype": "Action Execution",
+                        "action": action_doc.name,
+                        "conversation": conv_ref,
+                        "status": exec_status,
+                        "execution_time": round(elapsed, 4),
+                        "input_payload": json.dumps(parameters, default=str),
+                        "output_payload": json.dumps(res, default=str),
+                        "error_message": error_msg,
+                    }).insert(ignore_permissions=True)
+                    frappe.db.commit()
+                except Exception as log_err:
+                    frappe.log_error(f"Failed to record Action Execution: {str(log_err)}")

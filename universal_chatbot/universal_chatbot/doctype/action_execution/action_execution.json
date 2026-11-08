@@ -11,7 +11,11 @@
   "conversation",
   "column_break_1",
   "status",
-  "execution_time"
+  "execution_time",
+  "section_break_payloads",
+  "input_payload",
+  "output_payload",
+  "error_message"
  ],
  "fields": [
   {
@@ -52,6 +56,30 @@
    "fieldtype": "Float",
    "in_list_view": 1,
    "label": "Execution Time (s)"
+  },
+  {
+   "fieldname": "section_break_payloads",
+   "fieldtype": "Section Break",
+   "label": "Payloads & Diagnostics"
+  },
+  {
+   "default": "{}",
+   "fieldname": "input_payload",
+   "fieldtype": "Code",
+   "label": "Input Payload (JSON)",
+   "options": "JSON"
+  },
+  {
+   "default": "{}",
+   "fieldname": "output_payload",
+   "fieldtype": "Code",
+   "label": "Output Payload (JSON)",
+   "options": "JSON"
+  },
+  {
+   "fieldname": "error_message",
+   "fieldtype": "Small Text",
+   "label": "Error Message"
   }
  ],
  "index_web_pages_for_search": 1,

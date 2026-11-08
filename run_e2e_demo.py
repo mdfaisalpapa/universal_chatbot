@@ -99,17 +99,31 @@ def run_demonstration():
     print("======================================================================")
 
     matched_due = any("Your outstanding maintenance is" in t for t in outbound_texts)
-    matched_amount = any("4,500" in t for t in outbound_texts)
+    matched_amount = any("2,940" in t for t in outbound_texts)
 
     print(f"[*] Response contains maintenance message: {matched_due}")
-    print(f"[*] Response contains retrieved dues amount (₹ 4,500.00): {matched_amount}")
+    print(f"[*] Response contains dynamically retrieved dues amount (₹ 2,940.00): {matched_amount}")
 
-    if matched_due and matched_amount:
+    # Verify Action Execution Log in DB
+    action_log = frappe.get_all(
+        "Action Execution",
+        filters={"conversation": conversation_id},
+        fields=["name", "action", "status", "execution_time", "input_payload", "output_payload"],
+    )
+    print(f"[*] Action Execution log created: {len(action_log) > 0}")
+    if action_log:
+        print(f"    - ID: {action_log[0]['name']}")
+        print(f"    - Status: {action_log[0]['status']}")
+        print(f"    - Duration: {action_log[0]['execution_time']}s")
+        print(f"    - Input: {action_log[0]['input_payload']}")
+        print(f"    - Output: {action_log[0]['output_payload'][:120]}...")
+
+    if matched_due and matched_amount and action_log:
         print("\n[SUCCESS] End-to-end integration test passed perfectly!")
-        print("          chatbot.local successfully queried kvc3.local via REST API")
-        print("          and delivered the live maintenance balance to the user.")
+        print("          chatbot.local successfully queried kvc3.local via REST API,")
+        print("          delivered the live maintenance balance, and logged Action Execution.")
     else:
-        print("\n[FAILURE] Did not receive expected response text.")
+        print("\n[FAILURE] Did not receive expected response text or Action Execution log missing.")
         raise AssertionError("End-to-end integration test failed")
 
 

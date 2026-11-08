@@ -66,7 +66,12 @@ class CallActionNode(BaseFlowNode):
             if connector and isinstance(connector, BaseConnector):
                 result_data = connector.execute(action_name, resolved_params)
             elif context.action_executor:
-                result_data = context.action_executor(action_name, resolved_params)
+                try:
+                    result_data = context.action_executor(
+                        action_name, resolved_params, conversation_id=context.conversation_id
+                    )
+                except TypeError:
+                    result_data = context.action_executor(action_name, resolved_params)
             else:
                 result_data = {
                     "success": True,
