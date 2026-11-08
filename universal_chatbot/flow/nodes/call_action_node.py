@@ -84,8 +84,9 @@ class CallActionNode(BaseFlowNode):
         if save_all_var:
             var_updates[save_all_var] = result_data
 
-        if isinstance(output_mapping, dict) and output_mapping:
-            for target_var, response_path in output_mapping.items():
+        effective_output_mapping = output_mapping or result_data.get("_action_output_mapping") or {}
+        if isinstance(effective_output_mapping, dict) and effective_output_mapping:
+            for target_var, response_path in effective_output_mapping.items():
                 # Search unpacked first, then data, then root
                 mapped_val = extract_by_path(result_data.get("unpacked"), response_path)
                 if mapped_val is None:

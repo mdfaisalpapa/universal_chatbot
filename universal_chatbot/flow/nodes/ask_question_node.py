@@ -10,7 +10,12 @@ class AskQuestionNode(BaseFlowNode):
     """Asks the user a freeform question and pauses flow until reply."""
 
     def execute(self, context: NodeExecutionContext) -> NodeResult:
-        question_text = self.config.get("question") or self.config.get("text", "")
+        question_text = (
+            self.config.get("question")
+            or self.config.get("prompt")
+            or self.config.get("text")
+            or self.config.get("message", "")
+        )
         rendered = interpolate_template(question_text, context.variables)
 
         msg = {

@@ -10,7 +10,11 @@ class SendMessageNode(BaseFlowNode):
     """Emits an outgoing text/card message and continues flow."""
 
     def execute(self, context: NodeExecutionContext) -> NodeResult:
-        template = self.config.get("text", "")
+        template = (
+            self.config.get("text")
+            or self.config.get("message")
+            or self.config.get("prompt", "")
+        )
         rendered = interpolate_template(template, context.variables)
         msg_type = self.config.get("message_type", "text")
 

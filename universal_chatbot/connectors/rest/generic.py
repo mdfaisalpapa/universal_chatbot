@@ -9,6 +9,7 @@ import base64
 import json
 import re
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 import requests
 from universal_chatbot.connectors.base import BaseConnector
 from universal_chatbot.core.exceptions import ConnectorError
@@ -21,7 +22,15 @@ class GenericRestConnector(BaseConnector):
 
     def __init__(self, config: Dict[str, Any], credentials: Optional[Dict[str, Any]] = None):
         super().__init__(config, credentials)
-        self.base_url = (self.config.get("base_url") or "").rstrip("/")
+        raw_base = (self.config.get("base_url") or "").rstrip("/")
+        if raw_base:
+            parsed = urlparse(raw_base)
+            if (
+                parsed.hostname in ("kvc3.local", "chatbot.local", "localhost", "127.0.0.1")
+                and not parsed.port
+            ):
+                raw_base = f"{parsed.scheme or 'http'}://{parsed.hostname}:8000"
+        self.base_url = raw_base
         self.timeout = int(self.config.get("timeout", 15))
         self.actions_registry: Dict[str, Dict[str, Any]] = {}
 

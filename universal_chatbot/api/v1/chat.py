@@ -233,6 +233,7 @@ def init_chat(
             flow=flow_def,
             conversation_id=actual_conv_id,
             state={},
+            action_executor=repo.execute_action,
         )
 
         # Log outbound messages
@@ -365,6 +366,7 @@ def send_message(
         conversation_id=conversation_id,
         state=state,
         incoming_message=incoming_msg,
+        action_executor=repo.execute_action,
     )
 
     # 6. Persist Outbound Messages

@@ -426,3 +426,66 @@ class FrappeConversationRepository(ConversationRepositoryInterface):
             }).insert(ignore_permissions=True)
 
         return doc.as_dict()
+
+    def execute_action(self, action_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute an Integration Action by instantiating the connector from DocType configurations."""
+        action_name_clean = (action_name or "").strip()
+        action_docname = frappe.db.get_value(
+            "Integration Action",
+            {"action_name": action_name_clean},
+            "name",
+        )
+        if not action_docname and frappe.db.exists("Integration Action", action_name_clean):
+            action_docname = action_name_clean
+
+        if not action_docname:
+            raise FlowExecutionError(f"Integration Action '{action_name}' not configured in database")
+
+        action_doc = frappe.get_doc("Integration Action", action_docname)
+        integration_doc = frappe.get_doc("Chatbot Integration", action_doc.integration)
+
+        # Retrieve credentials
+        cred_docname = frappe.db.get_value("Integration Credential", {"integration": integration_doc.name}, "name")
+        credentials = {}
+        if cred_docname:
+            cred_doc = frappe.get_doc("Integration Credential", cred_docname)
+            credentials = {
+                "authentication_type": cred_doc.authentication_type,
+                "api_key": cred_doc.api_key,
+                "api_secret": cred_doc.get_decrypted_secret(),
+            }
+
+        config = {
+            "base_url": integration_doc.base_url,
+            "timeout": 15,
+        }
+
+        # Instantiate connector based on integration_type
+        if integration_doc.integration_type == "Frappe REST":
+            from universal_chatbot.connectors.rest.frappe_connector import FrappeRestConnector
+            connector = FrappeRestConnector(config=config, credentials=credentials)
+        else:
+            from universal_chatbot.connectors.rest.generic import GenericRestConnector
+            connector = GenericRestConnector(config=config, credentials=credentials)
+
+        endpoint = action_doc.operation
+        method = "POST" if (endpoint and endpoint.startswith("/api/method")) else "GET"
+        input_schema = json.loads(action_doc.input_schema or "{}") if isinstance(action_doc.input_schema, str) else (action_doc.input_schema or {})
+        output_mapping = json.loads(action_doc.output_mapping or "{}") if isinstance(action_doc.output_mapping, str) else (action_doc.output_mapping or {})
+
+        connector.register_action(
+            action_name_clean,
+            {
+                "name": action_name_clean,
+                "endpoint": endpoint,
+                "operation": endpoint,
+                "method": method,
+                "input_schema": input_schema,
+                "output_mapping": output_mapping,
+            },
+        )
+
+        res = connector.execute(action_name_clean, parameters)
+        if isinstance(res, dict) and output_mapping:
+            res["_action_output_mapping"] = output_mapping
+        return res
