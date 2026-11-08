@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Universal Chatbot - Web Widget Demo</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 40px;
+      background: #f8fafc;
+      color: #1e293b;
+    }
+    .demo-card {
+      max-width: 720px;
+      margin: 40px auto;
+      background: #ffffff;
+      padding: 36px;
+      border-radius: 12px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+    }
+    h1 {
+      margin-top: 0;
+      color: #0f172a;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      border-radius: 20px;
+      background: #e0f2fe;
+      color: #0369a1;
+      margin-bottom: 12px;
+    }
+    pre {
+      background: #f1f5f9;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 13px;
+    }
+    .instruction {
+      line-height: 1.6;
+      color: #475569;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-card">
+    <span class="badge">Universal Chatbot Phase 1</span>
+    <h1>Embeddable Chat Widget Demo</h1>
+    <p class="instruction">
+      This page demonstrates the standalone floating chat widget embedded via a single <code>&lt;script&gt;</code> tag.
+      State and session persistence are guaranteed across page refreshes.
+    </p>
+
+    <h3>Widget Embed Snippet:</h3>
+    <pre><code>&lt;script
+  src="/assets/universal_chatbot/widget/chatbot.js"
+  data-deployment-key="{{ deployment_key }}"
+  data-server-url="{{ frappe.utils.get_url() }}"&gt;
+&lt;/script&gt;</code></pre>
+
+    <p class="instruction">
+      Look at the bottom right corner of this page to interact with the floating chat assistant!
+    </p>
+  </div>
+
+  <!-- Embed standalone chatbot widget -->
+  <script
+    src="/assets/universal_chatbot/widget/chatbot.js"
+    data-deployment-key="{{ deployment_key }}"
+    data-server-url="{{ frappe.utils.get_url() }}">
+  </script>
+</body>
+</html>
