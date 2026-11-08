@@ -34,8 +34,8 @@ app_license = "mit"
 # ------------------
 
 # include js, css files in header of desk.html
-# app_include_css = "/assets/universal_chatbot/css/universal_chatbot.css"
-# app_include_js = "/assets/universal_chatbot/js/universal_chatbot.js"
+app_include_css = "/assets/universal_chatbot/css/flow_designer.css"
+app_include_js = "/assets/universal_chatbot/js/flow_designer.js"
 
 # include js, css files in header of web template
 # web_include_css = "/assets/universal_chatbot/css/universal_chatbot.css"
