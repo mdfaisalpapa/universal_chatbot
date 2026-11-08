@@ -180,7 +180,7 @@ def save_visual_flow(flow_name: str, flow_data: Any) -> Dict[str, Any]:
     if isinstance(nodes_input, dict):
         nodes_input = list(nodes_input.values())
 
-    # 2. Sync Flow Nodes
+    # 2. Sync Flow Nodes (Upsert retained nodes)
     existing_nodes = {
         n.node_id: n.name
         for n in frappe.get_all("Flow Node", filters={"flow": flow_name}, fields=["name", "node_id"])
@@ -191,6 +191,11 @@ def save_visual_flow(flow_name: str, flow_data: Any) -> Dict[str, Any]:
     for n in nodes_input:
         nid = n["node_id"]
         cfg = n.get("configuration") or {}
+        if isinstance(cfg, str):
+            try:
+                cfg = json.loads(cfg)
+            except Exception:
+                cfg = {}
         # Embed UI coordinates in configuration
         cfg["ui_x"] = n.get("x", cfg.get("ui_x", 100))
         cfg["ui_y"] = n.get("y", cfg.get("ui_y", 100))
@@ -214,21 +219,30 @@ def save_visual_flow(flow_name: str, flow_data: Any) -> Dict[str, Any]:
         retained_node_names.add(node_doc.name)
         node_id_to_docname[nid] = node_doc.name
 
-    # Delete removed nodes
+    # 3. Clean up Flow Transitions FIRST before deleting any Flow Nodes
+    # This prevents LinkExistsError when a node linked to transitions is removed
+    all_existing_node_docnames = list(existing_nodes.values())
+    if all_existing_node_docnames:
+        existing_source_transitions = frappe.get_all(
+            "Flow Transition",
+            filters={"source_node": ["in", all_existing_node_docnames]},
+            fields=["name"],
+        )
+        existing_target_transitions = frappe.get_all(
+            "Flow Transition",
+            filters={"target_node": ["in", all_existing_node_docnames]},
+            fields=["name"],
+        )
+        all_trans_names = set(t.name for t in existing_source_transitions) | set(t.name for t in existing_target_transitions)
+        for t_name in all_trans_names:
+            frappe.delete_doc("Flow Transition", t_name, ignore_permissions=True, force=1)
+
+    # 4. Now safely delete orphaned/removed Flow Nodes
     for nid, dname in existing_nodes.items():
         if dname not in retained_node_names:
-            frappe.delete_doc("Flow Node", dname, ignore_permissions=True)
+            frappe.delete_doc("Flow Node", dname, ignore_permissions=True, force=1)
 
-    # 3. Sync Flow Transitions
-    # Delete existing transitions for these nodes to avoid orphaned/dangling rules
-    existing_transitions = frappe.get_all(
-        "Flow Transition",
-        filters={"source_node": ["in", list(retained_node_names)]},
-        fields=["name"],
-    )
-    for t in existing_transitions:
-        frappe.delete_doc("Flow Transition", t.name, ignore_permissions=True)
-
+    # 5. Insert new Flow Transitions for the active graph
     transitions_input = flow_data.get("transitions", [])
     created_transitions = 0
     for t in transitions_input:
@@ -250,7 +264,7 @@ def save_visual_flow(flow_name: str, flow_data: Any) -> Dict[str, Any]:
             }).insert(ignore_permissions=True)
             created_transitions += 1
 
-    # 4. Sync Flow Variables
+    # 6. Sync Flow Variables
     existing_vars = {
         v.variable_name: v.name
         for v in frappe.get_all("Flow Variable", filters={"flow": flow_name}, fields=["name", "variable_name"])
@@ -287,7 +301,11 @@ def save_visual_flow(flow_name: str, flow_data: Any) -> Dict[str, Any]:
 
     for vname, dname in existing_vars.items():
         if dname not in retained_vars:
-            frappe.delete_doc("Flow Variable", dname, ignore_permissions=True)
+            frappe.delete_doc("Flow Variable", dname, ignore_permissions=True, force=1)
+
+    # Update modified timestamp on Chatbot Flow and commit
+    frappe.db.set_value("Chatbot Flow", flow_name, "modified", frappe.utils.now(), update_modified=False)
+    frappe.db.commit()
 
     return {
         "status": "success",
@@ -355,3 +373,32 @@ def publish_flow(flow_name: str, changelog: str = "Published from Visual Flow De
         "version_number": new_version_num,
         "flow_name": flow_name,
     }
+
+
+@frappe.whitelist()
+def test_integration_action(action_name: str, sample_parameters: Any = None) -> Dict[str, Any]:
+    """Execute a dry-run test of an Integration Action with sample parameters and return output schema data."""
+    frappe.has_permission("Chatbot Flow", "write", throw=True)
+    from universal_chatbot.adapters.frappe_repository import FrappeConversationRepository
+
+    if isinstance(sample_parameters, str):
+        try:
+            sample_parameters = json.loads(sample_parameters)
+        except Exception:
+            sample_parameters = {}
+    elif not isinstance(sample_parameters, dict):
+        sample_parameters = {}
+
+    repo = FrappeConversationRepository()
+    try:
+        result = repo.execute_action(action_name=action_name, parameters=sample_parameters)
+        return {
+            "status": "success",
+            "result": result
+        }
+    except Exception as e:
+        frappe.log_error(f"Error testing integration action '{action_name}': {str(e)}")
+        return {
+            "status": "error",
+            "message": str(e)
+        }

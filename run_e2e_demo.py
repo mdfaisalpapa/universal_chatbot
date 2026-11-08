@@ -95,14 +95,20 @@ def run_demonstration():
 
     # Verification
     print("\n======================================================================")
-    print(" VERIFICATION & RESULTS")
+    print(" VERIFICATION & RESULTS (Owner Occupied Flat: TB2-203)")
     print("======================================================================")
 
-    matched_due = any("Your outstanding maintenance is" in t for t in outbound_texts)
-    matched_amount = any("2,940" in t for t in outbound_texts)
+    matched_header = any("the details for flat TB2-203:" in t for t in outbound_texts)
+    matched_owner = any("👤 Owner: PRAVEEN KUMAR" in t for t in outbound_texts)
+    matched_details = any("🏢 Details: B2 Block, 2 BHK, 1133 sqft" in t for t in outbound_texts)
+    matched_tenant = any("👥 Tenant: None (Owner Occupied)" in t for t in outbound_texts)
+    matched_amount = any("💰 Outstanding Dues: ₹ 2,940.00" in t for t in outbound_texts)
 
-    print(f"[*] Response contains maintenance message: {matched_due}")
-    print(f"[*] Response contains dynamically retrieved dues amount (₹ 2,940.00): {matched_amount}")
+    print(f"[*] Response contains flat header: {matched_header}")
+    print(f"[*] Response contains owner details: {matched_owner}")
+    print(f"[*] Response contains flat details: {matched_details}")
+    print(f"[*] Response contains tenant details: {matched_tenant}")
+    print(f"[*] Response contains dues amount: {matched_amount}")
 
     # Verify Action Execution Log in DB
     action_log = frappe.get_all(
@@ -118,13 +124,48 @@ def run_demonstration():
         print(f"    - Input: {action_log[0]['input_payload']}")
         print(f"    - Output: {action_log[0]['output_payload'][:120]}...")
 
-    if matched_due and matched_amount and action_log:
-        print("\n[SUCCESS] End-to-end integration test passed perfectly!")
-        print("          chatbot.local successfully queried kvc3.local via REST API,")
-        print("          delivered the live maintenance balance, and logged Action Execution.")
-    else:
-        print("\n[FAILURE] Did not receive expected response text or Action Execution log missing.")
-        raise AssertionError("End-to-end integration test failed")
+    assert (
+        matched_header and matched_owner and matched_details and matched_tenant and matched_amount and action_log
+    ), "TB2-203 verification failed"
+
+    # Step 3: Test flat with active tenant (TA1-203)
+    print("\n======================================================================")
+    print(" [Step 3] Testing Flat with Active Tenant: TA1-203")
+    print("======================================================================")
+    user_tenant = "resident_ta1_203"
+    init_resp_t = init_chat(
+        deployment_key=deployment_key,
+        external_user_id=user_tenant,
+    )
+    conv_t = init_resp_t["conversation_id"]
+    msg_resp_t = send_message(
+        deployment_key=deployment_key,
+        external_user_id=user_tenant,
+        conversation_id=conv_t,
+        message="TA1-203",
+    )
+    outbound_t = [m.get("text", "") for m in msg_resp_t.get("messages", [])]
+    for text in outbound_t:
+        print(f"  [BOT] {text}")
+
+    matched_t_header = any("the details for flat TA1-203:" in t for t in outbound_t)
+    matched_t_owner = any("👤 Owner: B BALAJI" in t for t in outbound_t)
+    matched_t_details = any("🏢 Details: A1 Block, 1 BHK, 579 sqft" in t for t in outbound_t)
+    matched_t_tenant = any("👥 Tenant: Mr. Devilal Reddy (Active)" in t for t in outbound_t)
+    matched_t_amount = any("💰 Outstanding Dues: ₹ 1,555.00" in t for t in outbound_t)
+
+    print(f"[*] Response contains flat header: {matched_t_header}")
+    print(f"[*] Response contains owner details: {matched_t_owner}")
+    print(f"[*] Response contains flat details: {matched_t_details}")
+    print(f"[*] Response contains tenant details: {matched_t_tenant}")
+    print(f"[*] Response contains dues amount: {matched_t_amount}")
+
+    assert (
+        matched_t_header and matched_t_owner and matched_t_details and matched_t_tenant and matched_t_amount
+    ), "TA1-203 verification failed"
+
+    print("\n[SUCCESS] Both Owner-Occupied and Tenant-Occupied scenarios passed completely!")
+    print("          All expanded fields (Owner, Details, Tenant, Dues) retrieved and formatted properly.")
 
 
 if __name__ == "__main__":
