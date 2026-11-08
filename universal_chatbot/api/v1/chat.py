@@ -4,6 +4,7 @@ Handles authentication, CORS origin validation, rate limiting,
 payload normalization via WebChannelAdapter, and flow orchestration.
 """
 
+import re
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 import frappe
@@ -39,7 +40,11 @@ def validate_deployment_origin(deployment_doc, request_headers: Dict[str, str]) 
     except Exception:
         frappe.throw(_("Invalid Origin or Referer header."), exc=frappe.PermissionError)
 
-    allowed_list = [d.strip().lower() for d in allowed_domains_str.split(",") if d.strip()]
+    allowed_list = [
+        d.strip().lower()
+        for d in re.split(r"[,\n]+", allowed_domains_str)
+        if d.strip()
+    ]
 
     matched = False
     for allowed in allowed_list:
