@@ -1,0 +1,95 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:{integration}-{action_name}",
+ "creation": "2026-11-08 05:40:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "action_name",
+  "integration",
+  "column_break_1",
+  "operation",
+  "section_break_schema",
+  "input_schema",
+  "output_mapping"
+ ],
+ "fields": [
+  {
+   "fieldname": "action_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Action Name",
+   "reqd": 1
+  },
+  {
+   "fieldname": "integration",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Chatbot Integration",
+   "options": "Chatbot Integration",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Endpoint or operation e.g. /api/resource/Sales Order/{order_id} or get_doc",
+   "fieldname": "operation",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Operation / Endpoint",
+   "reqd": 1
+  },
+  {
+   "fieldname": "section_break_schema",
+   "fieldtype": "Section Break",
+   "label": "Input Schema & Output Mapping"
+  },
+  {
+   "default": "{}",
+   "description": "JSON schema specifying required parameters and types",
+   "fieldname": "input_schema",
+   "fieldtype": "Code",
+   "label": "Input Schema (JSON)",
+   "options": "JSON"
+  },
+  {
+   "default": "{}",
+   "description": "JSON mapping flow variable names to response path expressions e.g. {\"status\": \"data.status\"}",
+   "fieldname": "output_mapping",
+   "fieldtype": "Code",
+   "label": "Output Mapping (JSON)",
+   "options": "JSON"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-08 05:40:00.000000",
+ "modified_by": "Administrator",
+ "module": "Universal Chatbot",
+ "name": "Integration Action",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

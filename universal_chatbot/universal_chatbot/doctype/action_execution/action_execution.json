@@ -1,0 +1,83 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "ACTX-.#####",
+ "creation": "2026-11-08 05:40:00.000000",
+ "doctype": "DocType",
+ "document_type": "Document",
+ "engine": "InnoDB",
+ "field_order": [
+  "action",
+  "conversation",
+  "column_break_1",
+  "status",
+  "execution_time"
+ ],
+ "fields": [
+  {
+   "fieldname": "action",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Integration Action",
+   "options": "Integration Action",
+   "reqd": 1
+  },
+  {
+   "fieldname": "conversation",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Chat Conversation",
+   "options": "Chat Conversation",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Success",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Success\nFailed\nTimed Out",
+   "reqd": 1
+  },
+  {
+   "description": "Duration in seconds",
+   "fieldname": "execution_time",
+   "fieldtype": "Float",
+   "in_list_view": 1,
+   "label": "Execution Time (s)"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-11-08 05:40:00.000000",
+ "modified_by": "Administrator",
+ "module": "Universal Chatbot",
+ "name": "Action Execution",
+ "naming_rule": "Expression (old style)",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}
