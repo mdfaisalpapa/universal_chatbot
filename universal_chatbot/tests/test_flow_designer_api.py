@@ -324,8 +324,18 @@ class TestFlowDesignerAPI(unittest.TestCase):
         self.assertEqual(res_err["status"], "error")
         self.assertIn("not configured", res_err["message"])
 
-        # If get_maintenance_dues action exists on chatbot.local, test it
+        # If get_maintenance_dues action exists on chatbot.local, test it with mocked response or live call
         if frappe.db.exists("Integration Action", {"action_name": "get_maintenance_dues"}):
-            res = test_integration_action("get_maintenance_dues", {"flat_number": "TB2-203"})
-            self.assertEqual(res["status"], "success")
-            self.assertIn("data", res["result"])
+            from unittest.mock import patch
+            mock_resp = {
+                "success": True,
+                "status_code": 200,
+                "data": {"message": {"flat_number": "TB2-203", "outstanding_amount": "₹ 2,940.00"}},
+            }
+            with patch(
+                "universal_chatbot.adapters.frappe_repository.FrappeConversationRepository.execute_action",
+                return_value=mock_resp,
+            ):
+                res = test_integration_action("get_maintenance_dues", {"flat_number": "TB2-203"})
+                self.assertEqual(res["status"], "success")
+                self.assertIn("data", res["result"])

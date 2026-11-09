@@ -17,6 +17,17 @@ class BotDeployment(Document):
         if not self.deployment_key:
             self.deployment_key = secrets.token_hex(16)
         self.validate_json()
+        self.sync_channel_link()
+
+    def on_update(self):
+        self.sync_channel_link()
+
+    def sync_channel_link(self):
+        """Ensure bidirectional link between Bot Deployment and Bot Channel."""
+        if self.channel and frappe.db.exists("Bot Channel", self.channel):
+            ch_dep = frappe.db.get_value("Bot Channel", self.channel, "deployment")
+            if ch_dep != self.name:
+                frappe.db.set_value("Bot Channel", self.channel, "deployment", self.name)
 
     def validate_json(self):
         if self.theme_config:

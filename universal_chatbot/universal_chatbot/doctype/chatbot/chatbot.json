@@ -17,6 +17,10 @@
   "default_language",
   "active_version",
   "primary_flow",
+  "section_break_flows",
+  "flow_management_html",
+  "section_break_channels",
+  "channel_management_html",
   "section_break_messages",
   "greeting_message",
   "fallback_message",
@@ -85,6 +89,26 @@
    "fieldname": "primary_flow",
    "fieldtype": "Data",
    "label": "Primary Flow"
+  },
+  {
+   "fieldname": "section_break_flows",
+   "fieldtype": "Section Break",
+   "label": "Conversation Flows & Visual Logic"
+  },
+  {
+   "fieldname": "flow_management_html",
+   "fieldtype": "HTML",
+   "label": "Flow Management"
+  },
+  {
+   "fieldname": "section_break_channels",
+   "fieldtype": "Section Break",
+   "label": "Omnichannel Deployments & Channels"
+  },
+  {
+   "fieldname": "channel_management_html",
+   "fieldtype": "HTML",
+   "label": "Channel Management"
   },
   {
    "fieldname": "section_break_messages",

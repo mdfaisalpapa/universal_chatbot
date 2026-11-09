@@ -53,6 +53,9 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                             <span class="flow-toolbar-badge" id="flow-status-badge">Draft</span>
                         </div>
                         <div class="flow-toolbar-right">
+                            <button class="btn btn-default btn-xs" id="btn-quick-wizard" title="Quick Create / Re-scaffold Bot">
+                                <i class="fa fa-magic"></i> ✨ Quick Create Bot
+                            </button>
                             <button class="btn btn-default btn-xs" id="btn-validate">
                                 <i class="fa fa-check"></i> Validate
                             </button>
@@ -297,6 +300,15 @@ window.UniversalChatbot = window.UniversalChatbot || {};
             });
 
             // Toolbar buttons
+            this.container.find("#btn-quick-wizard").on("click", () => {
+                if (window.UniversalChatbot && window.UniversalChatbot.open_bot_wizard) {
+                    window.UniversalChatbot.open_bot_wizard((res) => {
+                        if (res && res.flow_name) {
+                            me.loadFlow(res.flow_name);
+                        }
+                    });
+                }
+            });
             this.container.find("#btn-validate").on("click", () => me.validateFlowUI());
             this.container.find("#btn-save").on("click", () => me.saveFlow());
             this.container.find("#btn-publish").on("click", () => me.publishFlow());

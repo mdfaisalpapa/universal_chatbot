@@ -77,8 +77,9 @@ def get_active_deployment(deployment_key: str):
     if not deployment_key:
         frappe.throw(_("Missing required parameter 'deployment_key'."), exc=frappe.MandatoryError)
 
-    deployment_name = frappe.db.get_value(
-        "Bot Deployment", {"deployment_key": deployment_key}, "name"
+    deployment_name = (
+        frappe.db.get_value("Bot Deployment", {"deployment_key": deployment_key}, "name")
+        or (deployment_key if frappe.db.exists("Bot Deployment", deployment_key) else None)
     )
     if not deployment_name:
         raise DeploymentNotFoundError(deployment_key)

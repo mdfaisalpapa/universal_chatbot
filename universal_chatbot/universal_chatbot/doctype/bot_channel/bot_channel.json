@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "field:channel_name",
- "creation": "2026-11-08 04:20:00.000000",
+ "creation": "2026-11-08 04:20:00",
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
@@ -11,7 +11,15 @@
   "channel_type",
   "is_enabled",
   "chatbot",
+  "deployment",
   "description",
+  "whatsapp_section",
+  "whatsapp_phone_number_id",
+  "whatsapp_access_token",
+  "whatsapp_verify_token",
+  "telegram_section",
+  "telegram_bot_token",
+  "telegram_webhook_secret",
   "section_break_config",
   "config"
  ],
@@ -31,7 +39,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Channel Type",
-   "options": "Web Widget",
+   "options": "Web Widget\nWhatsApp\nTelegram",
    "reqd": 1
   },
   {
@@ -50,9 +58,67 @@
    "options": "Chatbot"
   },
   {
+   "fieldname": "deployment",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Bot Deployment",
+   "options": "Bot Deployment"
+  },
+  {
    "fieldname": "description",
    "fieldtype": "Small Text",
    "label": "Description"
+  },
+  {
+   "depends_on": "eval:doc.channel_type=='WhatsApp'",
+   "fieldname": "whatsapp_section",
+   "fieldtype": "Section Break",
+   "label": "WhatsApp Settings"
+  },
+  {
+   "depends_on": "eval:doc.channel_type=='WhatsApp'",
+   "description": "WhatsApp Cloud API Phone Number ID",
+   "fieldname": "whatsapp_phone_number_id",
+   "fieldtype": "Data",
+   "label": "Phone Number ID"
+  },
+  {
+   "depends_on": "eval:doc.channel_type=='WhatsApp'",
+   "description": "Permanent System User Access Token from Meta Developer Portal",
+   "fieldname": "whatsapp_access_token",
+   "fieldtype": "Password",
+   "label": "Access Token",
+   "length": 1000
+  },
+  {
+   "depends_on": "eval:doc.channel_type=='WhatsApp'",
+   "description": "Custom verification token for webhook subscription handshake",
+   "fieldname": "whatsapp_verify_token",
+   "fieldtype": "Data",
+   "label": "Verify Token",
+   "length": 1000
+  },
+  {
+   "depends_on": "eval:doc.channel_type=='Telegram'",
+   "fieldname": "telegram_section",
+   "fieldtype": "Section Break",
+   "label": "Telegram Settings"
+  },
+  {
+   "depends_on": "eval:doc.channel_type=='Telegram'",
+   "description": "Bot Token from Telegram @BotFather",
+   "fieldname": "telegram_bot_token",
+   "fieldtype": "Password",
+   "label": "Bot Token",
+   "length": 1000
+  },
+  {
+   "depends_on": "eval:doc.channel_type=='Telegram'",
+   "description": "Optional secret token passed in X-Telegram-Bot-Api-Secret-Token",
+   "fieldname": "telegram_webhook_secret",
+   "fieldtype": "Data",
+   "label": "Webhook Secret"
   },
   {
    "fieldname": "section_break_config",
@@ -68,7 +134,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-08 04:20:00.000000",
+ "modified": "2026-11-09 05:05:33.970215",
  "modified_by": "Administrator",
  "module": "Universal Chatbot",
  "name": "Bot Channel",
@@ -88,6 +154,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "creation",
  "sort_order": "DESC",
  "states": [],
