@@ -376,6 +376,92 @@ def publish_flow(flow_name: str, changelog: str = "Published from Visual Flow De
 
 
 @frappe.whitelist()
+def unpublish_flow(flow_name: str) -> Dict[str, Any]:
+    """Revert a published flow status back to Draft."""
+    frappe.has_permission("Chatbot Flow", "write", throw=True)
+
+    if not frappe.db.exists("Chatbot Flow", flow_name):
+        frappe.throw(_("Chatbot Flow '{0}' not found.").format(flow_name), exc=frappe.DoesNotExistError)
+
+    flow_doc = frappe.get_doc("Chatbot Flow", flow_name)
+    flow_doc.status = "Draft"
+    flow_doc.save(ignore_permissions=True)
+
+    frappe.db.commit()
+    return {
+        "status": "success",
+        "message": _("Flow '{0}' has been unpublished and reverted to Draft.").format(flow_name),
+        "flow_name": flow_name,
+        "new_status": "Draft",
+    }
+
+
+
+@frappe.whitelist()
+def get_available_integration_actions(bot: Optional[str] = None, flow_name: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Return configured Integration Actions that are linked to the specific Bot and its active integrations
+
+    for use in the Visual Flow Designer dropdown.
+    """
+    frappe.has_permission("Integration Action", "read", throw=True)
+
+    target_bot = (bot or "").strip()
+    if not target_bot and flow_name and frappe.db.exists("Chatbot Flow", flow_name):
+        target_bot = frappe.db.get_value("Chatbot Flow", flow_name, "bot") or ""
+
+    # Find active integrations linked to this bot (or shared unlinked integrations)
+    if target_bot:
+        linked_integrations = frappe.get_all(
+            "Chatbot Integration",
+            filters={"status": "Active", "chatbot": ["in", [target_bot, "", None]]},
+            pluck="name",
+        )
+    else:
+        linked_integrations = frappe.get_all(
+            "Chatbot Integration",
+            filters={"status": "Active"},
+            pluck="name",
+        )
+
+    if not linked_integrations:
+        return []
+
+    actions = frappe.get_all(
+        "Integration Action",
+        filters={"integration": ["in", linked_integrations]},
+        fields=["name", "action_name", "integration", "method", "operation", "input_schema", "output_mapping"],
+        order_by="action_name asc",
+    )
+
+    results = []
+    for a in actions:
+        in_schema = {}
+        out_map = {}
+        if a.input_schema:
+            try:
+                in_schema = json.loads(a.input_schema) if isinstance(a.input_schema, str) else a.input_schema
+            except Exception:
+                in_schema = {}
+        if a.output_mapping:
+            try:
+                out_map = json.loads(a.output_mapping) if isinstance(a.output_mapping, str) else a.output_mapping
+            except Exception:
+                out_map = {}
+
+        results.append({
+            "name": a.name,
+            "action_name": a.action_name,
+            "integration": a.integration,
+            "method": a.method or "POST",
+            "operation": a.operation or "",
+            "input_schema": in_schema,
+            "output_mapping": out_map,
+        })
+
+    return results
+
+
+@frappe.whitelist()
 def test_integration_action(action_name: str, sample_parameters: Any = None) -> Dict[str, Any]:
     """Execute a dry-run test of an Integration Action with sample parameters and return output schema data."""
     frappe.has_permission("Chatbot Flow", "write", throw=True)
@@ -402,3 +488,22 @@ def test_integration_action(action_name: str, sample_parameters: Any = None) -> 
             "status": "error",
             "message": str(e)
         }
+
+
+@frappe.whitelist()
+def export_flow_json(flow_name: str) -> Dict[str, Any]:
+    """Export flow configuration to standard downloadable JSON schema."""
+    from universal_chatbot.flow.export_import import export_flow_json as _export
+    return _export(flow_name=flow_name)
+
+
+@frappe.whitelist()
+def import_flow_json(
+    flow_json: Any,
+    bot_slug: Optional[str] = None,
+    overwrite: Any = False,
+) -> Dict[str, Any]:
+    """Import and provision a flow configuration from a JSON schema."""
+    from universal_chatbot.flow.export_import import import_flow_json as _import
+    return _import(flow_json=flow_json, bot_slug=bot_slug, overwrite=overwrite)
+

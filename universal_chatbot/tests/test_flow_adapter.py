@@ -2,15 +2,16 @@
 # For license information, please see license.txt
 
 import json
+import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from universal_chatbot.adapters.frappe_repository import FrappeConversationRepository
 from universal_chatbot.flow.engine import FlowExecutor
 from universal_chatbot.flow.schema import ExecutionStatus
 
 
-class TestFlowAdapter(FrappeTestCase):
+class TestFlowAdapter(unittest.TestCase):
     def setUp(self):
+        frappe.set_user("Administrator")
         self.repo = FrappeConversationRepository()
         self.executor = FlowExecutor()
 

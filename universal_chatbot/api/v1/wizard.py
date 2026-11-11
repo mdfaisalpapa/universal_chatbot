@@ -1117,3 +1117,842 @@ def delete_bot_channel(channel_name: str) -> Dict[str, Any]:
     frappe.db.commit()
 
     return {"status": "success", "message": _("Channel '{0}' deleted successfully.").format(ch_id)}
+
+
+@frappe.whitelist()
+def get_bot_integrations(bot_slug: str) -> List[Dict[str, Any]]:
+    """Retrieve all Chatbot Integrations and Actions available and/or linked to this bot's flows."""
+    frappe.has_permission("Chatbot", "read", throw=True)
+    slug = (bot_slug or "").strip()
+    if not slug:
+        return []
+
+    # 1. Identify which actions are referenced in this bot's flows
+    flows = frappe.get_all("Chatbot Flow", filters={"bot": slug}, pluck="name")
+    used_action_names = set()
+    if flows:
+        nodes = frappe.get_all(
+            "Flow Node",
+            filters={"flow": ["in", flows], "node_type": "Call Action"},
+            fields=["configuration"],
+        )
+        for n in nodes:
+            if n.configuration:
+                try:
+                    cfg = json.loads(n.configuration) if isinstance(n.configuration, str) else n.configuration
+                    act = cfg.get("action_name")
+                    if act:
+                        used_action_names.add(act)
+                except Exception:
+                    pass
+
+    # 2. Get integrations: prioritize integrations explicitly linked to this bot, or unlinked integrations
+    filters = {}
+    if slug:
+        filters = {"chatbot": ["in", [slug, "", None]]}
+
+    integrations = frappe.get_all(
+        "Chatbot Integration",
+        filters=filters,
+        fields=["name", "integration_name", "integration_type", "status", "base_url", "timeout", "description", "chatbot"],
+        order_by="creation desc",
+    )
+
+    results = []
+    for integ in integrations:
+        # Check credentials
+        cred_name = frappe.db.get_value("Integration Credential", {"integration": integ.name}, "name")
+        auth_type = "None"
+        has_credentials = False
+        api_key_masked = ""
+        if cred_name:
+            cred_doc = frappe.get_doc("Integration Credential", cred_name)
+            auth_type = cred_doc.authentication_type or "Token"
+            has_credentials = bool(cred_doc.api_key or cred_doc.get_decrypted_secret())
+            if cred_doc.api_key:
+                api_key_masked = f"{cred_doc.api_key[:4]}...{cred_doc.api_key[-4:]}" if len(cred_doc.api_key) > 8 else "****"
+
+        # Get linked actions
+        actions = frappe.get_all(
+            "Integration Action",
+            filters={"integration": integ.name},
+            fields=["name", "action_name", "method", "operation", "input_schema", "output_mapping"],
+        )
+
+        actions_list = []
+        is_used_by_bot = False
+        for a in actions:
+            is_used = (a.action_name in used_action_names) or (a.name in used_action_names)
+            if is_used:
+                is_used_by_bot = True
+            actions_list.append({
+                "name": a.name,
+                "action_name": a.action_name,
+                "method": a.get("method") or "POST",
+                "operation": a.operation or "",
+                "input_schema": a.input_schema or "{}",
+                "output_mapping": a.output_mapping or "{}",
+                "is_used": is_used,
+            })
+
+        results.append({
+            "name": integ.name,
+            "integration_name": integ.integration_name,
+            "integration_type": integ.integration_type,
+            "status": integ.status or "Active",
+            "base_url": integ.base_url,
+            "timeout": integ.timeout or 15,
+            "description": integ.description or "",
+            "chatbot": integ.chatbot or "",
+            "auth_type": auth_type,
+            "has_credentials": has_credentials,
+            "api_key_masked": api_key_masked,
+            "actions": actions_list,
+            "actions_count": len(actions_list),
+            "is_used_by_bot": is_used_by_bot,
+        })
+
+    return results
+
+
+@frappe.whitelist()
+def save_chatbot_integration(
+    integration_name: str,
+    integration_type: str = "Frappe REST",
+    base_url: str = "",
+    status: str = "Active",
+    timeout: int = 15,
+    auth_type: str = "Token",
+    api_key: str = "",
+    api_secret: str = "",
+    chatbot: Optional[str] = None,
+    actions: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Create or update a Chatbot Integration with Credentials and Actions."""
+    frappe.has_permission("Chatbot Integration", "write", throw=True)
+
+    iname = (integration_name or "").strip()
+    if not iname:
+        frappe.throw(_("Integration Name is required."))
+
+    burl = (base_url or "").strip().rstrip("/")
+    if not burl:
+        frappe.throw(_("Base URL is required."))
+
+    # 1. Upsert Chatbot Integration
+    if frappe.db.exists("Chatbot Integration", iname):
+        integ_doc = frappe.get_doc("Chatbot Integration", iname)
+        integ_doc.integration_type = integration_type
+        integ_doc.base_url = burl
+        integ_doc.status = status
+        integ_doc.timeout = frappe.utils.cint(timeout) or 15
+        if chatbot:
+            integ_doc.chatbot = chatbot
+        integ_doc.save(ignore_permissions=True)
+    else:
+        integ_doc = frappe.get_doc({
+            "doctype": "Chatbot Integration",
+            "integration_name": iname,
+            "chatbot": chatbot or "",
+            "integration_type": integration_type,
+            "base_url": burl,
+            "status": status,
+            "timeout": frappe.utils.cint(timeout) or 15,
+        }).insert(ignore_permissions=True)
+
+    # 2. Upsert Integration Credential if authentication details provided
+    cred_name = frappe.db.get_value("Integration Credential", {"integration": iname}, "name")
+    if cred_name:
+        cred_doc = frappe.get_doc("Integration Credential", cred_name)
+        cred_doc.authentication_type = auth_type
+        if api_key:
+            cred_doc.api_key = api_key.strip()
+        if api_secret:
+            cred_doc.api_secret = api_secret.strip()
+        cred_doc.save(ignore_permissions=True)
+    else:
+        if auth_type != "None" or api_key or api_secret:
+            frappe.get_doc({
+                "doctype": "Integration Credential",
+                "integration": iname,
+                "authentication_type": auth_type or "Token",
+                "api_key": api_key.strip() if api_key else "",
+                "api_secret": api_secret.strip() if api_secret else "",
+            }).insert(ignore_permissions=True)
+
+    # 3. Upsert Actions if provided
+    if actions:
+        if isinstance(actions, str):
+            try:
+                actions = json.loads(actions)
+            except Exception:
+                actions = []
+        if isinstance(actions, list):
+            for a in actions:
+                act_name = (a.get("action_name") or "").strip()
+                if not act_name:
+                    continue
+                full_act_name = f"{iname}-{act_name}"
+                op = (a.get("operation") or "").strip()
+                method = (a.get("method") or "POST").strip().upper()
+                in_schema = a.get("input_schema") or "{}"
+                out_map = a.get("output_mapping") or "{}"
+
+                if isinstance(in_schema, dict):
+                    in_schema = json.dumps(in_schema)
+                if isinstance(out_map, dict):
+                    out_map = json.dumps(out_map)
+
+                if frappe.db.exists("Integration Action", full_act_name):
+                    act_doc = frappe.get_doc("Integration Action", full_act_name)
+                    act_doc.operation = op
+                    act_doc.method = method
+                    act_doc.input_schema = in_schema
+                    act_doc.output_mapping = out_map
+                    act_doc.save(ignore_permissions=True)
+                else:
+                    frappe.get_doc({
+                        "doctype": "Integration Action",
+                        "integration": iname,
+                        "action_name": act_name,
+                        "method": method,
+                        "operation": op,
+                        "input_schema": in_schema,
+                        "output_mapping": out_map,
+                    }).insert(ignore_permissions=True)
+
+    frappe.db.commit()
+    return {
+        "status": "success",
+        "message": _("Integration '{0}' saved successfully.").format(iname),
+        "integration_name": iname,
+    }
+
+
+@frappe.whitelist()
+def delete_chatbot_integration(integration_name: str) -> Dict[str, Any]:
+    """Delete a Chatbot Integration, its credentials, and linked actions."""
+    frappe.has_permission("Chatbot Integration", "delete", throw=True)
+    iname = (integration_name or "").strip()
+    if not iname or not frappe.db.exists("Chatbot Integration", iname):
+        return {"status": "success", "message": _("Integration already removed.")}
+
+    # Delete linked actions
+    actions = frappe.get_all("Integration Action", filters={"integration": iname}, pluck="name")
+    for a in actions:
+        frappe.delete_doc("Integration Action", a, force=1, ignore_permissions=True)
+
+    # Delete linked credentials
+    creds = frappe.get_all("Integration Credential", filters={"integration": iname}, pluck="name")
+    for c in creds:
+        frappe.delete_doc("Integration Credential", c, force=1, ignore_permissions=True)
+
+    # Delete integration doc
+    frappe.delete_doc("Chatbot Integration", iname, force=1, ignore_permissions=True)
+    frappe.db.commit()
+
+    return {"status": "success", "message": _("Integration '{0}' deleted successfully.").format(iname)}
+
+
+@frappe.whitelist()
+def save_integration_action(
+    integration: str,
+    action_name: str,
+    operation: str,
+    method: str = "POST",
+    input_schema: Optional[Any] = None,
+    output_mapping: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Create or update a single Integration Action."""
+    frappe.has_permission("Integration Action", "write", throw=True)
+    integ = (integration or "").strip()
+    aname = (action_name or "").strip()
+    op = (operation or "").strip()
+    meth = (method or "POST").strip().upper()
+
+    if not integ or not frappe.db.exists("Chatbot Integration", integ):
+        frappe.throw(_("Chatbot Integration '{0}' does not exist.").format(integ), exc=frappe.DoesNotExistError)
+    if not aname:
+        frappe.throw(_("Action Name is required."))
+    if not op:
+        frappe.throw(_("Endpoint / Operation is required."))
+
+    full_name = f"{integ}-{aname}"
+    in_schema_str = input_schema if isinstance(input_schema, str) else json.dumps(input_schema or {})
+    out_map_str = output_mapping if isinstance(output_mapping, str) else json.dumps(output_mapping or {})
+
+    # Validate JSON syntax
+    try:
+        json.loads(in_schema_str)
+    except Exception as e:
+        frappe.throw(_("Invalid JSON for Input Schema: {0}").format(str(e)))
+
+    try:
+        json.loads(out_map_str)
+    except Exception as e:
+        frappe.throw(_("Invalid JSON for Output Mapping: {0}").format(str(e)))
+
+    if frappe.db.exists("Integration Action", full_name):
+        doc = frappe.get_doc("Integration Action", full_name)
+        doc.method = meth
+        doc.operation = op
+        doc.input_schema = in_schema_str
+        doc.output_mapping = out_map_str
+        doc.save(ignore_permissions=True)
+    else:
+        frappe.get_doc({
+            "doctype": "Integration Action",
+            "integration": integ,
+            "action_name": aname,
+            "method": meth,
+            "operation": op,
+            "input_schema": in_schema_str,
+            "output_mapping": out_map_str,
+        }).insert(ignore_permissions=True)
+
+    frappe.db.commit()
+    return {"status": "success", "message": _("Action '{0}' saved successfully.").format(aname), "name": full_name}
+
+
+@frappe.whitelist()
+def delete_integration_action(action_name: str) -> Dict[str, Any]:
+    """Delete an Integration Action."""
+    frappe.has_permission("Integration Action", "delete", throw=True)
+    aname = (action_name or "").strip()
+    if not aname or not frappe.db.exists("Integration Action", aname):
+        return {"status": "success", "message": _("Action already removed.")}
+
+    frappe.delete_doc("Integration Action", aname, force=1, ignore_permissions=True)
+    frappe.db.commit()
+    return {"status": "success", "message": _("Action '{0}' deleted successfully.").format(aname)}
+
+
+@frappe.whitelist()
+def discover_remote_actions(
+    integration_name: str,
+    source_type: str = "frappe",
+    identifier_or_url: str = "",
+) -> Dict[str, Any]:
+    """Introspect remote API (Frappe DocType or OpenAPI specification)
+
+    and return candidate action definitions with automatically generated input schemas and output mappings.
+    """
+    frappe.has_permission("Chatbot Integration", "read", throw=True)
+    iname = (integration_name or "").strip()
+    if not iname or not frappe.db.exists("Chatbot Integration", iname):
+        frappe.throw(_("Chatbot Integration '{0}' does not exist.").format(iname), exc=frappe.DoesNotExistError)
+
+    integ_doc = frappe.get_doc("Chatbot Integration", iname)
+    base_url = (integ_doc.base_url or "").rstrip("/")
+
+    # Retrieve credentials if configured
+    cred_name = frappe.db.get_value("Integration Credential", {"integration": iname}, "name")
+    credentials = {}
+    if cred_name:
+        cred_doc = frappe.get_doc("Integration Credential", cred_name)
+        credentials = {
+            "authentication_type": cred_doc.authentication_type,
+            "api_key": cred_doc.api_key or "",
+            "api_secret": cred_doc.get_decrypted_secret() or "",
+        }
+
+    import requests
+
+    headers = {"Accept": "application/json"}
+    if credentials.get("authentication_type") == "Token" and credentials.get("api_key") and credentials.get("api_secret"):
+        headers["Authorization"] = f"token {credentials['api_key']}:{credentials['api_secret']}"
+    elif credentials.get("authentication_type") == "Bearer" and credentials.get("api_key"):
+        headers["Authorization"] = f"Bearer {credentials['api_key']}"
+
+    candidates: List[Dict[str, Any]] = []
+
+    # -------------------------------------------------------------
+    # 1. Frappe RPC / Python Module Introspection (e.g. society_erp.api)
+    # -------------------------------------------------------------
+    if source_type.lower() in ("rpc", "python", "module"):
+        module_name = (identifier_or_url or "").strip().rstrip(".py")
+        if not module_name:
+            frappe.throw(_("Please provide a Python module path to introspect (e.g. 'society_erp.api')."))
+
+        import inspect
+        import importlib
+
+        target_module = None
+        # Attempt to import locally from bench apps
+        try:
+            target_module = importlib.import_module(module_name)
+        except Exception:
+            # If sub-module syntax e.g. society_erp.api, also try importing .api
+            pass
+
+        # If not imported directly, try fallback variants
+        if not target_module and not module_name.endswith(".api"):
+            try:
+                target_module = importlib.import_module(f"{module_name}.api")
+                module_name = f"{module_name}.api"
+            except Exception:
+                pass
+
+        if not target_module:
+            frappe.throw(_("Could not import module '{0}'. Ensure the app is installed in the bench or the module path is correct.").format(module_name))
+
+        # Inspect all functions in module
+        import ast
+
+        functions = inspect.getmembers(target_module, inspect.isfunction)
+        for fn_name, fn_obj in functions:
+            # Only consider functions defined directly in this module or whitelisted
+            if getattr(fn_obj, "__module__", "") != target_module.__name__ and (fn_obj not in getattr(frappe, "whitelisted", [])):
+                continue
+
+            # Check if function is whitelisted in Frappe
+            is_whitelisted = (
+                fn_obj in getattr(frappe, "whitelisted", [])
+                or getattr(fn_obj, "_whitelisted", False)
+                or getattr(fn_obj, "whitelisted", False)
+            )
+
+            # Check docstring for whitelisted hint or include if explicitly in an api module
+            if not is_whitelisted and "api" in module_name.lower():
+                if fn_name.startswith("_"):
+                    continue
+                is_whitelisted = True
+
+            if not is_whitelisted or fn_name.startswith("_"):
+                continue
+
+            # Extract parameter signature
+            in_props: Dict[str, Any] = {}
+            in_required: List[str] = []
+
+            try:
+                sig = inspect.signature(fn_obj)
+                for p_name, p_param in sig.parameters.items():
+                    if p_name in ("self", "cls"):
+                        continue
+
+                    ann_type = "string"
+                    if p_param.annotation in (int, "int"):
+                        ann_type = "integer"
+                    elif p_param.annotation in (float, "float"):
+                        ann_type = "number"
+                    elif p_param.annotation in (bool, "bool"):
+                        ann_type = "boolean"
+                    elif p_param.annotation in (dict, "dict"):
+                        ann_type = "object"
+
+                    in_props[p_name] = {
+                        "type": ann_type,
+                        "title": p_name.replace("_", " ").title(),
+                    }
+
+                    # In Frappe, if param has no default or default is None, it is often required by callers
+                    if p_param.default == inspect.Parameter.empty or p_param.default is None:
+                        in_required.append(p_name)
+            except Exception:
+                pass
+
+            # AST Analysis: Parse function source code to discover frappe.form_dict parameters,
+            # returned dictionary payloads, and frappe.response keys
+            ast_dict_keys: List[str] = []
+            try:
+                fn_src = inspect.getsource(fn_obj)
+                fn_tree = ast.parse(fn_src)
+
+                # 1. Discover any parameters read via frappe.form_dict.get("param") or frappe.local.form_dict.get("param")
+                for node in ast.walk(fn_tree):
+                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+                        if isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "form_dict":
+                            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                                fd_param = node.args[0].value
+                                if fd_param not in in_props and fd_param not in ("cmd", "data"):
+                                    in_props[fd_param] = {
+                                        "type": "string",
+                                        "title": fd_param.replace("_", " ").title(),
+                                    }
+                                    in_required.append(fd_param)
+
+                # 2. Discover return dictionary keys
+                return_var_names: List[str] = []
+                for node in ast.walk(fn_tree):
+                    if isinstance(node, ast.Return) and node.value:
+                        if isinstance(node.value, ast.Name):
+                            return_var_names.append(node.value.id)
+                        elif isinstance(node.value, ast.Dict):
+                            for k in node.value.keys:
+                                if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                                    if k.value not in ast_dict_keys:
+                                        ast_dict_keys.append(k.value)
+
+                # Find assignments to returned variable names e.g. resp_payload = {...}
+                if return_var_names:
+                    for node in ast.walk(fn_tree):
+                        if isinstance(node, ast.Assign):
+                            for t in node.targets:
+                                if isinstance(t, ast.Name) and t.id in return_var_names:
+                                    if isinstance(node.value, ast.Dict):
+                                        for k in node.value.keys:
+                                            if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                                                if k.value not in ast_dict_keys:
+                                                    ast_dict_keys.append(k.value)
+
+                # 3. Discover frappe.response["key"] assignments
+                for node in ast.walk(fn_tree):
+                    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) and node.value.attr == "response":
+                        if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+                            r_key = node.slice.value
+                            if r_key not in ("filecontent",) and r_key not in ast_dict_keys:
+                                ast_dict_keys.append(r_key)
+            except Exception:
+                pass
+
+            # Extract summary/description from docstring
+            docstring = inspect.getdoc(fn_obj) or ""
+            doc_lines = [l.strip() for l in docstring.split("\n") if l.strip()]
+            summary = doc_lines[0] if doc_lines else f"Execute {module_name}.{fn_name}"
+
+            # Build Output Mapping from discovered keys
+            out_map: Dict[str, str] = {}
+            if ast_dict_keys:
+                for k in ast_dict_keys:
+                    if k not in ("message", "filecontent"):
+                        out_map[k] = k
+                # If message is the only key or present
+                if not out_map and "message" in ast_dict_keys:
+                    out_map["message"] = "message"
+            else:
+                if "dues" in fn_name.lower() or "maintenance" in fn_name.lower():
+                    out_map = {
+                        "owner_name": "owner_name",
+                        "flat_details": "flat_details",
+                        "tenant_name": "tenant_name",
+                        "outstanding_amount": "outstanding_amount",
+                    }
+                elif "user" in fn_name.lower() or "customer" in fn_name.lower():
+                    out_map = {"name": "name", "email": "email", "status": "status"}
+                else:
+                    out_map = {"message": "message", "status": "status"}
+
+            candidates.append({
+                "action_name": fn_name,
+                "method": "POST",
+                "operation": f"/api/method/{module_name}.{fn_name}",
+                "description": summary,
+                "input_schema": {
+                    "type": "object",
+                    "required": in_required,
+                    "properties": in_props,
+                },
+                "output_mapping": out_map,
+            })
+
+    # -------------------------------------------------------------
+    # 2. Frappe REST DocType Introspection
+    # -------------------------------------------------------------
+    elif source_type.lower() == "frappe" or (source_type.lower() == "doctype" and integ_doc.integration_type == "Frappe REST"):
+        doctype = (identifier_or_url or "").strip()
+        if not doctype:
+            frappe.throw(_("Please provide a DocType name to introspect (e.g. 'Customer', 'Sales Order', 'Item')."))
+
+        # Try fetching DocType schema via Frappe API
+        # First attempt: desk form load method frappe.desk.form.load.getdoctype
+        meta_url = f"{base_url}/api/method/frappe.desk.form.load.getdoctype?doctype={doctype}"
+        fields_data = []
+        doc_title = doctype
+        try:
+            resp = requests.get(meta_url, headers=headers, timeout=integ_doc.timeout or 15)
+            if resp.status_code == 200:
+                body = resp.json().get("docs", [])
+                if body and len(body) > 0:
+                    dt_meta = body[0]
+                    fields_data = dt_meta.get("fields", [])
+                    doc_title = dt_meta.get("name") or doctype
+            else:
+                # Second attempt: sample an existing record from /api/resource/{doctype}?limit=1
+                sample_url = f"{base_url}/api/resource/{doctype}?limit=1"
+                sample_resp = requests.get(sample_url, headers=headers, timeout=integ_doc.timeout or 15)
+                if sample_resp.status_code == 200:
+                    data_list = sample_resp.json().get("data", [])
+                    if data_list and isinstance(data_list, list) and len(data_list) > 0:
+                        first_docname = data_list[0].get("name")
+                        if first_docname:
+                            detail_url = f"{base_url}/api/resource/{doctype}/{first_docname}"
+                            detail_resp = requests.get(detail_url, headers=headers, timeout=integ_doc.timeout or 15)
+                            if detail_resp.status_code == 200:
+                                rec_data = detail_resp.json().get("data", {})
+                                for k, v in rec_data.items():
+                                    if k in ("doctype", "docstatus", "idx"):
+                                        continue
+                                    fields_data.append({
+                                        "fieldname": k,
+                                        "label": k.replace("_", " ").title(),
+                                        "fieldtype": "Int" if isinstance(v, int) else ("Float" if isinstance(v, float) else "Data"),
+                                        "reqd": 0,
+                                    })
+                elif sample_resp.status_code in (401, 403):
+                    # Check if local frappe site knows about this doctype
+                    if frappe.db.exists("DocType", doctype):
+                        local_meta = frappe.get_meta(doctype)
+                        for f in local_meta.fields:
+                            fields_data.append({
+                                "fieldname": f.fieldname,
+                                "label": f.label or f.fieldname,
+                                "fieldtype": f.fieldtype,
+                                "reqd": f.reqd,
+                            })
+                    else:
+                        frappe.throw(_("Authentication failed connecting to {0} (HTTP {1})").format(base_url, sample_resp.status_code))
+        except requests.RequestException as e:
+            frappe.throw(_("Failed to connect to remote server: {0}").format(str(e)))
+
+        # Build schema from discovered fields
+        doc_slug = re.sub(r"[^a-zA-Z0-9_]+", "_", doctype.lower()).strip("_")
+        props: Dict[str, Any] = {}
+        required_fields: List[str] = []
+        out_map: Dict[str, str] = {"name": "name"}
+
+        for f in fields_data:
+            fname = f.get("fieldname")
+            ftype = f.get("fieldtype")
+            if not fname or ftype in ("Section Break", "Column Break", "Tab Break", "HTML", "Button"):
+                continue
+
+            json_type = "string"
+            if ftype in ("Int", "Check"):
+                json_type = "integer"
+            elif ftype in ("Float", "Currency", "Percent"):
+                json_type = "number"
+
+            props[fname] = {
+                "type": json_type,
+                "title": f.get("label") or fname,
+            }
+            if f.get("reqd"):
+                required_fields.append(fname)
+            # Add top fields to default output mapping
+            if len(out_map) < 10 and fname not in out_map:
+                out_map[fname] = fname
+
+        # If no fields could be introspected (e.g. empty doctype or permissions), provide clean defaults
+        if not props:
+            props = {"name": {"type": "string", "title": "Document Name / ID"}}
+            required_fields = ["name"]
+            out_map = {"name": "name", "owner": "owner", "modified": "modified"}
+
+        # Candidate 1: Get Single Document
+        candidates.append({
+            "action_name": f"get_{doc_slug}",
+            "method": "GET",
+            "operation": f"/api/resource/{doctype}/{{name}}",
+            "description": f"Fetch a single {doctype} by document name/ID",
+            "input_schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string", "title": "Document Name / ID"}
+                }
+            },
+            "output_mapping": out_map,
+        })
+
+        # Candidate 2: List Documents
+        candidates.append({
+            "action_name": f"list_{doc_slug}",
+            "method": "GET",
+            "operation": f"/api/resource/{doctype}",
+            "description": f"List {doctype} records with optional filtering",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "limit_page_length": {"type": "integer", "default": 20, "title": "Limit"},
+                }
+            },
+            "output_mapping": {"data": "data"},
+        })
+
+        # Candidate 3: Create Document
+        candidates.append({
+            "action_name": f"create_{doc_slug}",
+            "method": "POST",
+            "operation": f"/api/resource/{doctype}",
+            "description": f"Create a new {doctype} record",
+            "input_schema": {
+                "type": "object",
+                "required": required_fields,
+                "properties": props,
+            },
+            "output_mapping": {"name": "name"},
+        })
+
+    # -------------------------------------------------------------
+    # 2. OpenAPI / Swagger 2.0 / 3.0 Introspection
+    # -------------------------------------------------------------
+    else:
+        spec_url = (identifier_or_url or "").strip()
+        if not spec_url:
+            spec_url = f"{base_url}/openapi.json"
+
+        # If relative URL, prefix with base_url
+        if not (spec_url.startswith("http://") or spec_url.startswith("https://")):
+            spec_url = f"{base_url}/{spec_url.lstrip('/')}"
+
+        try:
+            resp = requests.get(spec_url, headers=headers, timeout=integ_doc.timeout or 15)
+            if resp.status_code != 200:
+                frappe.throw(_("Could not fetch OpenAPI spec from {0} (HTTP {1})").format(spec_url, resp.status_code))
+            spec = resp.json()
+        except requests.RequestException as e:
+            frappe.throw(_("Failed to fetch OpenAPI specification: {0}").format(str(e)))
+
+        paths = spec.get("paths", {})
+        for path_url, path_item in paths.items():
+            if not isinstance(path_item, dict):
+                continue
+            for method, op_data in path_item.items():
+                if method.lower() not in ("get", "post", "put", "delete", "patch") or not isinstance(op_data, dict):
+                    continue
+
+                method_upper = method.upper()
+                op_id = op_data.get("operationId")
+                summary = op_data.get("summary") or op_data.get("description") or f"{method_upper} {path_url}"
+
+                if not op_id:
+                    # Synthesize action name from method and path
+                    clean_path = re.sub(r"[{}\-./]+", "_", path_url).strip("_")
+                    op_id = f"{method.lower()}_{clean_path}"
+
+                # Extract parameters
+                params = op_data.get("parameters", [])
+                in_props: Dict[str, Any] = {}
+                in_required: List[str] = []
+
+                for p in params:
+                    pname = p.get("name")
+                    if not pname:
+                        continue
+                    schema = p.get("schema", {})
+                    ptype = schema.get("type") or p.get("type", "string")
+                    in_props[pname] = {
+                        "type": ptype,
+                        "description": p.get("description") or "",
+                    }
+                    if p.get("required"):
+                        in_required.append(pname)
+
+                # Extract request body for POST/PUT/PATCH
+                req_body = op_data.get("requestBody", {})
+                if req_body:
+                    content = req_body.get("content", {})
+                    json_schema = content.get("application/json", {}).get("schema", {})
+                    body_props = json_schema.get("properties", {})
+                    for bp_name, bp_data in body_props.items():
+                        if bp_name not in in_props:
+                            in_props[bp_name] = {
+                                "type": bp_data.get("type", "string"),
+                                "description": bp_data.get("description") or "",
+                            }
+                    for req_field in json_schema.get("required", []):
+                        if req_field not in in_required:
+                            in_required.append(req_field)
+
+                # Extract response schema
+                out_map: Dict[str, str] = {}
+                responses = op_data.get("responses", {})
+                resp_200 = responses.get("200") or responses.get(200) or responses.get("201") or responses.get(201) or {}
+                if isinstance(resp_200, dict):
+                    resp_schema = resp_200.get("content", {}).get("application/json", {}).get("schema", {})
+                    if not resp_schema and "schema" in resp_200:
+                        resp_schema = resp_200["schema"]
+                    resp_props = resp_schema.get("properties", {})
+                    for r_name in resp_props.keys():
+                        if len(out_map) < 8:
+                            out_map[r_name] = r_name
+
+                if not out_map:
+                    out_map = {"data": "data", "status": "status"}
+
+                candidates.append({
+                    "action_name": op_id,
+                    "method": method_upper,
+                    "operation": path_url,
+                    "description": summary,
+                    "input_schema": {
+                        "type": "object",
+                        "required": in_required,
+                        "properties": in_props,
+                    },
+                    "output_mapping": out_map,
+                })
+
+    return {
+        "status": "success",
+        "integration": iname,
+        "source_type": source_type,
+        "candidates_count": len(candidates),
+        "candidates": candidates,
+    }
+
+
+@frappe.whitelist()
+def import_discovered_actions(
+    integration_name: str,
+    actions: Any,
+) -> Dict[str, Any]:
+    """Bulk import selected discovered actions into Integration Action DocTypes."""
+    frappe.has_permission("Integration Action", "write", throw=True)
+    iname = (integration_name or "").strip()
+    if not iname or not frappe.db.exists("Chatbot Integration", iname):
+        frappe.throw(_("Chatbot Integration '{0}' does not exist.").format(iname), exc=frappe.DoesNotExistError)
+
+    if isinstance(actions, str):
+        try:
+            actions = json.loads(actions)
+        except Exception as e:
+            frappe.throw(_("Invalid JSON for actions: {0}").format(str(e)))
+
+    if not isinstance(actions, list) or len(actions) == 0:
+        frappe.throw(_("No actions provided to import."))
+
+    imported_names: List[str] = []
+    for a in actions:
+        aname = (a.get("action_name") or "").strip()
+        if not aname:
+            continue
+        full_act_name = f"{iname}-{aname}"
+        op = (a.get("operation") or "").strip()
+        method = (a.get("method") or "POST").strip().upper()
+        in_schema = a.get("input_schema") or "{}"
+        out_map = a.get("output_mapping") or "{}"
+
+        in_schema_str = in_schema if isinstance(in_schema, str) else json.dumps(in_schema)
+        out_map_str = out_map if isinstance(out_map, str) else json.dumps(out_map)
+
+        if frappe.db.exists("Integration Action", full_act_name):
+            act_doc = frappe.get_doc("Integration Action", full_act_name)
+            act_doc.method = method
+            act_doc.operation = op
+            act_doc.input_schema = in_schema_str
+            act_doc.output_mapping = out_map_str
+            act_doc.save(ignore_permissions=True)
+        else:
+            frappe.get_doc({
+                "doctype": "Integration Action",
+                "integration": iname,
+                "action_name": aname,
+                "method": method,
+                "operation": op,
+                "input_schema": in_schema_str,
+                "output_mapping": out_map_str,
+            }).insert(ignore_permissions=True)
+
+        imported_names.append(aname)
+
+    frappe.db.commit()
+    return {
+        "status": "success",
+        "message": _("Successfully imported {0} action(s).").format(len(imported_names)),
+        "imported_actions": imported_names,
+    }
+
+
+

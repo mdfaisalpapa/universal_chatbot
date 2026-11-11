@@ -2,7 +2,7 @@
  "actions": [],
  "allow_rename": 1,
  "autoname": "field:bot_name",
- "creation": "2026-11-08 04:20:00.000000",
+ "creation": "2026-11-08 04:20:00",
  "doctype": "DocType",
  "document_type": "Document",
  "engine": "InnoDB",
@@ -17,6 +17,9 @@
   "default_language",
   "active_version",
   "primary_flow",
+  "starter_template",
+  "section_break_integrations",
+  "integration_management_html",
   "section_break_flows",
   "flow_management_html",
   "section_break_channels",
@@ -91,9 +94,29 @@
    "label": "Primary Flow"
   },
   {
+   "default": "ERP & API Lookup",
+   "description": "Base architecture pattern for conversational logic",
+   "fieldname": "starter_template",
+   "fieldtype": "Select",
+   "label": "Starter Flow Template / Architecture",
+   "options": "ERP & API Lookup\nFAQ & Support\nBlank Canvas"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_integrations",
+   "fieldtype": "Section Break",
+   "label": "1. REST Integrations & External Actions"
+  },
+  {
+   "fieldname": "integration_management_html",
+   "fieldtype": "HTML",
+   "label": "Integration Management"
+  },
+  {
+   "collapsible": 1,
    "fieldname": "section_break_flows",
    "fieldtype": "Section Break",
-   "label": "Conversation Flows & Visual Logic"
+   "label": "2. Conversation Flows & Visual Logic"
   },
   {
    "fieldname": "flow_management_html",
@@ -101,9 +124,10 @@
    "label": "Flow Management"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_channels",
    "fieldtype": "Section Break",
-   "label": "Omnichannel Deployments & Channels"
+   "label": "3. Omnichannel Deployments & Channels"
   },
   {
    "fieldname": "channel_management_html",
@@ -111,6 +135,7 @@
    "label": "Channel Management"
   },
   {
+   "collapsible": 1,
    "fieldname": "section_break_messages",
    "fieldtype": "Section Break",
    "label": "Default Messages & Content"
@@ -135,7 +160,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-11-08 04:20:00.000000",
+ "modified": "2026-11-11 06:00:28.305121",
  "modified_by": "Administrator",
  "module": "Universal Chatbot",
  "name": "Chatbot",
@@ -155,6 +180,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "creation",
  "sort_order": "DESC",
  "states": [],

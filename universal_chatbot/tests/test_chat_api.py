@@ -2,14 +2,15 @@
 # For license information, please see license.txt
 
 import json
+import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from universal_chatbot.api.v1.chat import init_chat, send_message, validate_deployment_origin
 from universal_chatbot.core.exceptions import DeploymentNotFoundError
 
 
-class TestChatAPI(FrappeTestCase):
+class TestChatAPI(unittest.TestCase):
     def setUp(self):
+        frappe.set_user("Administrator")
         # 1. Setup Chatbot
         if not frappe.db.exists("Chatbot", "api_bot"):
             frappe.get_doc({

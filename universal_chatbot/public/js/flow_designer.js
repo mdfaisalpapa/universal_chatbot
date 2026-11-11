@@ -38,9 +38,33 @@ window.UniversalChatbot = window.UniversalChatbot || {};
 
             this.nodeCounter = 1;
             this.activePropertiesTab = "form";
+            this.availableActions = [];
+            this.loadAvailableActions();
             this.initLayout();
             this.bindEvents();
             this.loadFlow();
+        }
+
+        loadAvailableActions() {
+            const me = this;
+            const botSlug = (this.options && this.options.frm && this.options.frm.doc) ? this.options.frm.doc.name : "";
+            frappe.call({
+                method: "universal_chatbot.api.v1.flow_designer.get_available_integration_actions",
+                args: {
+                    flow_name: this.flowName,
+                    bot: botSlug
+                },
+                callback: function(r) {
+                    me.availableActions = r.message || [];
+                    // If properties panel is currently open on a call_action node, re-render dropdown
+                    if (me.selectedNode) {
+                        const node = me.nodes.find(n => n.node_id === me.selectedNode);
+                        if (node && normalizeType(node.node_type) === "call_action") {
+                            me.updateCallActionFormFromConfig(node);
+                        }
+                    }
+                }
+            });
         }
 
         initLayout() {
@@ -53,17 +77,20 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                             <span class="flow-toolbar-badge" id="flow-status-badge">Draft</span>
                         </div>
                         <div class="flow-toolbar-right">
-                            <button class="btn btn-default btn-xs" id="btn-quick-wizard" title="Quick Create / Re-scaffold Bot">
-                                <i class="fa fa-magic"></i> ✨ Quick Create Bot
+                            <button class="btn btn-default btn-xs" id="btn-import-flow" title="Import Flow from JSON">
+                                <i class="fa fa-upload"></i> Import Flow
+                            </button>
+                            <button class="btn btn-default btn-xs" id="btn-export-flow" title="Export Flow as JSON">
+                                <i class="fa fa-download"></i> Export Flow
                             </button>
                             <button class="btn btn-default btn-xs" id="btn-validate">
                                 <i class="fa fa-check"></i> Validate
                             </button>
-                            <button class="btn btn-primary btn-sm btn-save-flow-toolbar" id="btn-save" style="font-weight: 600; padding: 4px 14px;">
-                                <i class="fa fa-save"></i> Save Flow
-                            </button>
-                            <button class="btn btn-success btn-xs" id="btn-publish">
+                            <button class="btn btn-success btn-xs" id="btn-publish" style="display:none;">
                                 <i class="fa fa-rocket"></i> Publish
+                            </button>
+                            <button class="btn btn-default btn-xs text-warning" id="btn-unpublish" style="display:none;" title="Revert to Draft">
+                                <i class="fa fa-undo"></i> Unpublish
                             </button>
                         </div>
                     </div>
@@ -300,18 +327,11 @@ window.UniversalChatbot = window.UniversalChatbot || {};
             });
 
             // Toolbar buttons
-            this.container.find("#btn-quick-wizard").on("click", () => {
-                if (window.UniversalChatbot && window.UniversalChatbot.open_bot_wizard) {
-                    window.UniversalChatbot.open_bot_wizard((res) => {
-                        if (res && res.flow_name) {
-                            me.loadFlow(res.flow_name);
-                        }
-                    });
-                }
-            });
+            this.container.find("#btn-export-flow").on("click", () => me.exportFlow());
+            this.container.find("#btn-import-flow").on("click", () => me.importFlow());
             this.container.find("#btn-validate").on("click", () => me.validateFlowUI());
-            this.container.find("#btn-save").on("click", () => me.saveFlow());
             this.container.find("#btn-publish").on("click", () => me.publishFlow());
+            this.container.find("#btn-unpublish").on("click", () => me.unpublishFlow());
 
             // Global Delegated Handlers for Properties Panel (bound once to prevent duplicate executions)
             // Variable chips insertion click handler
@@ -499,6 +519,65 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                 }
             });
 
+            // Call Action: Integrated Action dropdown change
+            this.container.on("change", "#prop-action-select", function(e) {
+                if (!me.selectedNode) return;
+                const node = me.nodes.find(n => n.node_id === me.selectedNode);
+                if (!node) return;
+
+                const selectedVal = $(this).val();
+                const $customGroup = me.$propertiesContent.find(".prop-custom-action-group");
+                const $nameInput = me.$propertiesContent.find("#prop-action-name");
+
+                if (selectedVal === "__custom__") {
+                    $customGroup.slideDown(150);
+                    $nameInput.focus();
+                } else if (selectedVal) {
+                    $customGroup.slideUp(150);
+                    $nameInput.val(selectedVal);
+
+                    // Find action schema metadata and automatically prefill inputs and outputs if currently empty
+                    const actObj = (me.availableActions || []).find(a => a.action_name === selectedVal || a.name === selectedVal);
+                    if (actObj) {
+                        const inProps = (actObj.input_schema && actObj.input_schema.properties) ? Object.keys(actObj.input_schema.properties) : [];
+                        const outMap = actObj.output_mapping || {};
+
+                        // Check if current parameters are empty
+                        const $paramsContainer = me.$propertiesContent.find("#flow-params-container");
+                        if ($paramsContainer.find(".param-row").length === 0 && inProps.length > 0) {
+                            $paramsContainer.empty();
+                            const upstreamVars = me.getUpstreamVariables(node.node_id);
+                            inProps.forEach(p => {
+                                // Default to upstream var if matching name exists
+                                const matchedVar = upstreamVars.includes(p) ? `{{${p}}}` : "";
+                                $paramsContainer.append(me.renderParamRow(p, matchedVar, upstreamVars, node.node_id));
+                            });
+                        }
+
+                        // Check if current outputs are empty
+                        const $outputsContainer = me.$propertiesContent.find("#flow-outputs-container");
+                        if ($outputsContainer.find(".output-row").length === 0 && Object.keys(outMap).length > 0) {
+                            $outputsContainer.empty();
+                            Object.entries(outMap).forEach(([k, v]) => {
+                                $outputsContainer.append(me.renderOutputRow(k, typeof v === "string" ? v : k));
+                            });
+                        }
+                    }
+                } else {
+                    $nameInput.val("");
+                    $customGroup.slideUp(150);
+                }
+
+                me.syncCallActionFromUI(node);
+            });
+
+            // Call Action: Refresh available actions list
+            this.container.on("click", ".btn-refresh-actions-list", function(e) {
+                e.preventDefault();
+                frappe.show_alert({ message: __("Refreshing actions..."), indicator: "blue" }, 2);
+                me.loadAvailableActions();
+            });
+
             // Call Action: Input change events
             this.container.on("input change", "#prop-action-name, .param-key, .param-val, .output-path, .output-var", function(e) {
                 if (!me.selectedNode) return;
@@ -547,10 +626,7 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                         }));
                         me.transitions = data.transitions || [];
                         me.variables = data.variables || [];
-                        me.container.find("#flow-status-badge").text(data.status || "Draft");
-                        if (data.status === "Published") {
-                            me.container.find("#flow-status-badge").addClass("published");
-                        }
+                        me.updateStatusUI(data.status || "Draft");
                         me.renderAll();
                     }
                 }
@@ -967,12 +1043,33 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                     </div>
                 `;
             } else if (normType === "call_action") {
+                const actionOptionsHtml = (this.availableActions || []).map(a => {
+                    const isSel = (c.action_name === a.action_name || c.action_name === a.name) ? "selected" : "";
+                    const displayLabel = `⚡ ${a.action_name} [${a.method}] (${a.integration})`;
+                    return `<option value="${esc(a.action_name)}" data-full-name="${esc(a.name)}" ${isSel}>${esc(displayLabel)}</option>`;
+                }).join("");
+
                 customFields = `
                     <div class="flow-call-action-builder">
                         <div class="flow-form-group">
-                            <label>Integration Action Name</label>
+                            <label style="display:flex; justify-content:space-between; align-items:center;">
+                                <span>Select Integrated Action</span>
+                                <a href="javascript:void(0);" class="btn-refresh-actions-list" style="font-size:11px; font-weight:normal; color:#3b82f6;">
+                                    <i class="fa fa-refresh"></i> Refresh
+                                </a>
+                            </label>
+                            <select class="form-control" id="prop-action-select" style="font-size:12px; font-weight:600; color:#1e293b;">
+                                <option value="">-- Choose an Integrated Action --</option>
+                                ${actionOptionsHtml}
+                                <option value="__custom__" ${(!c.action_name || actionOptionsHtml.indexOf('selected') === -1 && c.action_name) ? "selected" : ""}>✏️ Custom / Manual Action Name...</option>
+                            </select>
+                            <div class="flow-form-help" style="margin-top:3px;">Select from configured REST / ERP integrations.</div>
+                        </div>
+
+                        <div class="flow-form-group prop-custom-action-group" style="margin-top: 8px; ${actionOptionsHtml.indexOf('selected') !== -1 && c.action_name ? 'display:none;' : ''}">
+                            <label>Action Identifier / Name</label>
                             <input type="text" class="form-control" id="prop-action-name" value="${esc(c.action_name || "")}" placeholder="e.g. get_maintenance_dues" />
-                            <div class="flow-form-help">Unique action identifier configured in Integration Action.</div>
+                            <div class="flow-form-help">Unique action identifier called by the conversation engine.</div>
                         </div>
 
                         <!-- Parameters (Inputs) Section -->
@@ -1351,6 +1448,24 @@ window.UniversalChatbot = window.UniversalChatbot || {};
             const vars = upstreamVars || this.getUpstreamVariables(node.node_id);
             this.$propertiesContent.find("#prop-action-name").val(c.action_name || "");
 
+            // Sync dropdown select if available
+            const $actionSelect = this.$propertiesContent.find("#prop-action-select");
+            const $customGroup = this.$propertiesContent.find(".prop-custom-action-group");
+            if ($actionSelect.length) {
+                const targetAct = c.action_name || "";
+                const hasOption = $actionSelect.find(`option[value="${targetAct}"]`).length > 0;
+                if (hasOption && targetAct) {
+                    $actionSelect.val(targetAct);
+                    $customGroup.hide();
+                } else if (targetAct) {
+                    $actionSelect.val("__custom__");
+                    $customGroup.show();
+                } else {
+                    $actionSelect.val("");
+                    $customGroup.hide();
+                }
+            }
+
             // Rebuild parameters
             const $paramsContainer = this.$propertiesContent.find("#flow-params-container");
             $paramsContainer.empty();
@@ -1589,6 +1704,24 @@ window.UniversalChatbot = window.UniversalChatbot || {};
             });
         }
 
+        updateStatusUI(status) {
+            const $badge = this.container.find("#flow-status-badge");
+            const $btnPublish = this.container.find("#btn-publish");
+            const $btnUnpublish = this.container.find("#btn-unpublish");
+
+            const isPublished = (status === "Published");
+            $badge.text(status || "Draft");
+            if (isPublished) {
+                $badge.addClass("published");
+                $btnPublish.hide();
+                $btnUnpublish.show();
+            } else {
+                $badge.removeClass("published");
+                $btnPublish.show();
+                $btnUnpublish.hide();
+            }
+        }
+
         publishFlow() {
             const me = this;
             if (!this.validateFlowUI(false)) return;
@@ -1616,11 +1749,132 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                                 indicator: "green",
                                 message: __("Published version {0} successfully.", [r.message.version_number])
                             });
-                            me.container.find("#flow-status-badge").text("Published").addClass("published");
+                            me.updateStatusUI("Published");
+                            if (me.options && me.options.frm && me.options.frm.reload_doc) {
+                                me.options.frm.reload_doc();
+                            }
                         }
                     }
                 });
             }, __("Publish New Version"), __("Publish"));
+        }
+
+        unpublishFlow() {
+            const me = this;
+            frappe.confirm(
+                __("Are you sure you want to unpublish <strong>{0}</strong>? Its status will revert to Draft.", [me.flowName]),
+                function() {
+                    frappe.call({
+                        method: "universal_chatbot.api.v1.flow_designer.unpublish_flow",
+                        args: { flow_name: me.flowName },
+                        freeze: true,
+                        freeze_message: __("Unpublishing Flow..."),
+                        callback: function(r) {
+                            if (r.message && r.message.status === "success") {
+                                frappe.show_alert({ message: r.message.message, indicator: "orange" });
+                                me.updateStatusUI("Draft");
+                                if (me.options && me.options.frm && me.options.frm.reload_doc) {
+                                    me.options.frm.reload_doc();
+                                }
+                            }
+                        }
+                    });
+                }
+            );
+        }
+
+        exportFlow() {
+            const me = this;
+            frappe.call({
+                method: "universal_chatbot.flow.export_import.export_flow_json",
+                args: { flow_name: this.flowName },
+                freeze: true,
+                freeze_message: __("Exporting Flow..."),
+                callback: function(r) {
+                    if (r.message) {
+                        const jsonStr = JSON.stringify(r.message, null, 2);
+                        const blob = new Blob([jsonStr], { type: "application/json" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `${me.flowName}_export.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        frappe.show_alert({ message: __("Flow exported successfully"), indicator: "green" });
+                    }
+                }
+            });
+        }
+
+        importFlow() {
+            const me = this;
+            const d = new frappe.ui.Dialog({
+                title: __("Import Flow JSON"),
+                fields: [
+                    {
+                        fieldname: "flow_file",
+                        fieldtype: "Attach",
+                        label: __("Upload Flow JSON File"),
+                        description: __("Select an exported .json flow file.")
+                    },
+                    {
+                        fieldname: "flow_json_text",
+                        fieldtype: "Code",
+                        label: __("Or Paste Flow JSON"),
+                        options: "JSON"
+                    },
+                    {
+                        fieldname: "overwrite",
+                        fieldtype: "Check",
+                        label: __("Overwrite Existing Flow Nodes & Logic"),
+                        default: 1
+                    }
+                ],
+                primary_action_label: __("Import & Apply"),
+                primary_action: function(vals) {
+                    let jsonText = vals.flow_json_text;
+                    const applyImport = function(content) {
+                        if (!content || !content.trim()) {
+                            frappe.msgprint(__("Please upload a file or paste JSON content."));
+                            return;
+                        }
+                        frappe.call({
+                            method: "universal_chatbot.flow.export_import.import_flow_json",
+                            args: {
+                                flow_json: content,
+                                bot_slug: (me.flowDoc && me.flowDoc.bot) || (window.cur_frm && window.cur_frm.doc && window.cur_frm.doc.bot),
+                                overwrite: vals.overwrite ? 1 : 0
+                            },
+                            freeze: true,
+                            freeze_message: __("Importing Flow..."),
+                            callback: function(res) {
+                                if (res.message && res.message.status === "success") {
+                                    d.hide();
+                                    frappe.show_alert({ message: res.message.message, indicator: "green" });
+                                    me.loadFlow(res.message.flow_name || me.flowName);
+                                    if (window.cur_frm && window.cur_frm.reload_doc) {
+                                        window.cur_frm.reload_doc();
+                                    }
+                                }
+                            }
+                        });
+                    };
+
+                    if (vals.flow_file) {
+                        fetch(vals.flow_file)
+                            .then(response => response.text())
+                            .then(text => applyImport(text))
+                            .catch(err => {
+                                frappe.msgprint(__("Failed to read uploaded file: {0}", [err.message]));
+                            });
+                    } else {
+                        applyImport(jsonText);
+                    }
+                }
+            });
+            d.show();
         }
     }
 
@@ -1652,30 +1906,9 @@ window.UniversalChatbot = window.UniversalChatbot || {};
 
         dialog.$wrapper.addClass("flow-designer-modal");
 
-        // Add prominent Save button in modal header
-        const $headerSaveBtn = $(`
-            <button type="button" class="btn btn-primary btn-sm btn-save-flow-header" style="margin-right: 12px; font-weight: 600;">
-                <i class="fa fa-save" style="margin-right: 4px;"></i> ${__("Save Flow")}
-            </button>
-        `);
-        $headerSaveBtn.on("click", function(e) {
-            e.preventDefault();
-            if (designerInstance) {
-                designerInstance.saveFlow();
-            }
-        });
-
-        // Insert into modal header
-        const $actions = dialog.$wrapper.find(".modal-header .modal-actions");
-        if ($actions.length) {
-            $actions.prepend($headerSaveBtn);
-        } else {
-            dialog.$wrapper.find(".modal-header").append($headerSaveBtn);
-        }
-
         dialog.show();
 
-        // Style primary action in footer
+        // Style single primary action in modal footer
         const $primaryBtn = dialog.get_primary_btn();
         if ($primaryBtn && $primaryBtn.length) {
             $primaryBtn.addClass("btn-save-flow-footer").html(`<i class="fa fa-save" style="margin-right: 5px;"></i> ${__("Save Flow")}`);

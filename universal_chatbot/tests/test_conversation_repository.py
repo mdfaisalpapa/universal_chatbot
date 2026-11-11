@@ -1,14 +1,15 @@
 # Copyright (c) 2026, Universal Chatbot and contributors
 # For license information, please see license.txt
 
+import unittest
 import frappe
-from frappe.tests.utils import FrappeTestCase
 from universal_chatbot.adapters.frappe_repository import FrappeConversationRepository
 from universal_chatbot.core.exceptions import SecurityValidationError
 
 
-class TestConversationRepository(FrappeTestCase):
+class TestConversationRepository(unittest.TestCase):
     def setUp(self):
+        frappe.set_user("Administrator")
         self.repo = FrappeConversationRepository()
 
         if not frappe.db.exists("Chatbot", "repo_bot"):

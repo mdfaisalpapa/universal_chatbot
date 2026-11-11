@@ -9,6 +9,7 @@
  "field_order": [
   "action_name",
   "integration",
+  "method",
   "column_break_1",
   "operation",
   "section_break_schema",
@@ -30,6 +31,15 @@
    "in_standard_filter": 1,
    "label": "Chatbot Integration",
    "options": "Chatbot Integration",
+   "reqd": 1
+  },
+  {
+   "default": "POST",
+   "fieldname": "method",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "HTTP Method",
+   "options": "GET\nPOST\nPUT\nDELETE\nPATCH",
    "reqd": 1
   },
   {

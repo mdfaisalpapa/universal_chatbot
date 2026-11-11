@@ -480,7 +480,7 @@ class FrappeConversationRepository(ConversationRepositoryInterface):
             connector = GenericRestConnector(config=config, credentials=credentials)
 
         endpoint = action_doc.operation
-        method = "POST" if (endpoint and endpoint.startswith("/api/method")) else "GET"
+        method = action_doc.method or ("POST" if (endpoint and endpoint.startswith("/api/method")) else "GET")
         input_schema = json.loads(action_doc.input_schema or "{}") if isinstance(action_doc.input_schema, str) else (action_doc.input_schema or {})
         output_mapping = json.loads(action_doc.output_mapping or "{}") if isinstance(action_doc.output_mapping, str) else (action_doc.output_mapping or {})
 
