@@ -145,10 +145,15 @@ class TelegramChannelAdapter(BaseChannelAdapter):
                 for m in raw_msgs:
                     if m.get("options"):
                         for opt in m["options"]:
-                            actions.append({
+                            act_dict = {
                                 "label": opt.get("label"),
                                 "value": opt.get("value"),
-                            })
+                            }
+                            if opt.get("url"):
+                                act_dict["url"] = opt["url"]
+                            if opt.get("web_app_url"):
+                                act_dict["web_app_url"] = opt["web_app_url"]
+                            actions.append(act_dict)
             else:
                 text = response.get("response", {}).get("text", "")
             if not actions and response.get("actions"):
@@ -166,8 +171,19 @@ class TelegramChannelAdapter(BaseChannelAdapter):
             row: List[Dict[str, str]] = []
             for act in actions:
                 lbl = act.get("label") or act.get("text") or act.get("value") or ""
+                url = act.get("url")
+                web_app_url = act.get("web_app_url")
                 val = act.get("value") or act.get("label") or ""
-                row.append({"text": str(lbl), "callback_data": str(val)[:64]})
+
+                btn: Dict[str, Any] = {"text": str(lbl)}
+                if web_app_url:
+                    btn["web_app"] = {"url": str(web_app_url)}
+                elif url:
+                    btn["url"] = str(url)
+                else:
+                    btn["callback_data"] = str(val)[:64]
+
+                row.append(btn)
                 if len(row) >= 2:
                     inline_keyboard.append(row)
                     row = []

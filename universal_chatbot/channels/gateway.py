@@ -230,6 +230,11 @@ class ChannelGateway:
 
         # 6. Execute Flow
         state = repo.get_state(conv_id) or {}
+        if "context" not in state:
+            state["context"] = {}
+        state["context"].setdefault("channel", channel_type)
+        state["context"].setdefault("channel_user_id", external_id)
+
         flow_id = resolve_flow_for_bot(deployment.chatbot, deployment)
         flow_def = repo.get_flow_definition(flow_id)
 

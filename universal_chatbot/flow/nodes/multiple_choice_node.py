@@ -19,7 +19,12 @@ class MultipleChoiceNode(BaseFlowNode):
         for opt in raw_options:
             label = interpolate_template(opt.get("label", ""), context.variables)
             val = opt.get("value", label)
-            rendered_options.append({"label": label, "value": val})
+            opt_dict = {"label": label, "value": val}
+            if opt.get("url"):
+                opt_dict["url"] = interpolate_template(opt["url"], context.variables)
+            if opt.get("web_app_url"):
+                opt_dict["web_app_url"] = interpolate_template(opt["web_app_url"], context.variables)
+            rendered_options.append(opt_dict)
 
         msg = {
             "type": "options",

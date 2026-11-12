@@ -44,13 +44,29 @@ NAMED_OPERATORS = {
 
 
 def interpolate_template(template: str, variables: Dict[str, Any]) -> str:
-    """Safely replace `{var_name}` or `{{var_name}}` with its variable value."""
+    """Safely replace `{var_name}` or `{{var_name}}` with its variable value. Supports nested dot notation."""
     if not template or not isinstance(template, str):
         return template or ""
 
+    def _get_nested(data: Any, path: str) -> Any:
+        parts = path.split(".")
+        curr = data
+        for part in parts:
+            if isinstance(curr, dict):
+                curr = curr.get(part)
+            elif isinstance(curr, (list, tuple)) and part.isdigit():
+                idx = int(part)
+                curr = curr[idx] if 0 <= idx < len(curr) else None
+            else:
+                return None
+        return curr
+
     def _replace(match):
         var_name = match.group(1).strip()
-        val = variables.get(var_name, "")
+        val = _get_nested(variables, var_name)
+        if val is None:
+            # Fallback to direct key if present
+            val = variables.get(var_name, "")
         return "" if val is None else str(val)
 
     # Replace {{var}} then {var}

@@ -41,11 +41,16 @@ class CallActionNode(BaseFlowNode):
         output_mapping: Dict[str, str] = self.config.get("output_mapping", {})
         save_all_var = self.config.get("save_result_to_variable") or self.config.get("result_variable")
 
-        # 1. Resolve parameters from NodeExecutionContext variables
+        # 1. Resolve parameters from NodeExecutionContext variables overlaid with context
+        combined_scope = dict(context.context or {})
+        combined_scope.update(context.variables or {})
+        # Also provide a nested 'context' key so {{context.channel}} or {{channel}} both work
+        combined_scope["context"] = dict(context.context or {})
+
         resolved_params: Dict[str, Any] = {}
         for k, v in raw_params.items():
             if isinstance(v, str):
-                resolved_params[k] = interpolate_template(v, context.variables)
+                resolved_params[k] = interpolate_template(v, combined_scope)
             else:
                 resolved_params[k] = v
 

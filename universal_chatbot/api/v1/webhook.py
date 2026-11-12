@@ -10,9 +10,12 @@ from universal_chatbot.channels.whatsapp.adapter import whatsapp_webhook
 
 @frappe.whitelist(allow_guest=True)
 def channel_webhook(
-    channel: str, deployment_key: Optional[str] = None
+    channel: Optional[str] = None, deployment_key: Optional[str] = None, **kwargs
 ) -> Any:
     """Unified webhook gateway router supporting any registered channel (web, telegram, whatsapp)."""
+    channel = channel or frappe.request.args.get("channel") or frappe.form_dict.get("channel") or "telegram"
+    deployment_key = deployment_key or frappe.request.args.get("deployment_key") or frappe.form_dict.get("deployment_key")
+
     channel_key = (channel or "").lower().strip()
     if channel_key in ("whatsapp", "wa"):
         return whatsapp_webhook(deployment_key=deployment_key)

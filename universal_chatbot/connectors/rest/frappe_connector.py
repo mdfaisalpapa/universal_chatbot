@@ -117,9 +117,25 @@ class FrappeRestConnector(GenericRestConnector):
         except Exception as e:
             raise ConnectorError(f"Connection test failed: {str(e)}", connector_name=self.connector_type)
 
-    def execute(self, action_name: str, parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute action and unpack Frappe 'data' or 'message' envelopes."""
-        raw_result = super().execute(action_name, parameters)
+    def execute(self, action_name_or_method: str, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Execute an action or call a whitelisted Frappe method directly.
+        Supports both:
+          1. connector.execute("call_method", {"method": "society_erp.vehicle_portal.get_vehicles", ...})
+          2. connector.execute("society_erp.vehicle_portal.get_vehicles", {"for_user": "..."})
+        """
+        params = parameters or {}
+
+        # If action_name is a direct method path (contains a dot e.g. 'society_erp.api...'), treat as call_method
+        if "." in action_name_or_method and action_name_or_method not in self.actions_registry:
+            action_name = "call_method"
+            call_params = {"method": action_name_or_method}
+            call_params.update(params)
+        else:
+            action_name = action_name_or_method
+            call_params = params
+
+        raw_result = super().execute(action_name, call_params)
 
         # Unpack Frappe standard envelope {"data": ...} or {"message": ...}
         body = raw_result.get("data", {})
