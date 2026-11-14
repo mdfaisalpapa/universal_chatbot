@@ -97,10 +97,16 @@ class CallActionNode(BaseFlowNode):
         effective_output_mapping = output_mapping or result_data.get("_action_output_mapping") or {}
         if isinstance(effective_output_mapping, dict) and effective_output_mapping:
             for target_var, response_path in effective_output_mapping.items():
-                # Search unpacked first, then data, then root
-                mapped_val = extract_by_path(result_data.get("unpacked"), response_path)
-                if mapped_val is None:
-                    mapped_val = extract_by_path(result_data.get("data"), response_path)
+                # Search unpacked.data first, then unpacked, then data, then root
+                mapped_val = None
+                if isinstance(result_data.get("unpacked"), dict):
+                    mapped_val = extract_by_path(result_data.get("unpacked", {}).get("data"), response_path)
+                    if mapped_val is None:
+                        mapped_val = extract_by_path(result_data.get("unpacked"), response_path)
+                if mapped_val is None and isinstance(result_data.get("data"), dict):
+                    mapped_val = extract_by_path(result_data.get("data", {}).get("data"), response_path)
+                    if mapped_val is None:
+                        mapped_val = extract_by_path(result_data.get("data"), response_path)
                 if mapped_val is None:
                     mapped_val = extract_by_path(result_data, response_path)
 

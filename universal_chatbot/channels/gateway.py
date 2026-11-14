@@ -214,7 +214,7 @@ class ChannelGateway:
             )
 
         # 5. Log Inbound Message
-        inbound_text = incoming_msg.message.get("text", "")
+        inbound_text = (incoming_msg.message.get("text") or "").strip()
         repo.log_message(
             conversation_id=conv_id,
             direction="Inbound",
@@ -228,12 +228,19 @@ class ChannelGateway:
             details={"text": inbound_text, "channel": channel_type},
         )
 
+        # Handle explicit session reset / start / logout commands
+        is_reset_cmd = inbound_text.lower() in ("/start", "/reset", "/restart", "/logout", "reset", "restart", "logout")
+
         # 6. Execute Flow
         state = repo.get_state(conv_id) or {}
+        if is_reset_cmd:
+            state["current_node"] = None
+            state["variables"] = {}
+
         if "context" not in state:
             state["context"] = {}
-        state["context"].setdefault("channel", channel_type)
-        state["context"].setdefault("channel_user_id", external_id)
+        state["context"]["channel"] = channel_type
+        state["context"]["channel_user_id"] = external_id
 
         flow_id = resolve_flow_for_bot(deployment.chatbot, deployment)
         flow_def = repo.get_flow_definition(flow_id)
