@@ -230,6 +230,17 @@ class ChannelGateway:
 
         # Handle explicit session reset / start / logout commands
         is_reset_cmd = inbound_text.lower() in ("/start", "/reset", "/restart", "/logout", "reset", "restart", "logout")
+        is_logout = inbound_text.lower() in ("/logout", "logout")
+
+        # If user explicitly called logout, unlink Channel Identity from backend
+        if is_logout:
+            try:
+                repo.execute_action("logout_chat_user", {
+                    "channel": channel_type,
+                    "channel_user_id": external_id
+                }, conversation_id=conv_id)
+            except Exception:
+                pass
 
         # 6. Execute Flow
         state = repo.get_state(conv_id) or {}
