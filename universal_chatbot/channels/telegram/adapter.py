@@ -159,6 +159,8 @@ class TelegramChannelAdapter(BaseChannelAdapter):
                                 act_dict["url"] = opt["url"]
                             if opt.get("web_app_url"):
                                 act_dict["web_app_url"] = opt["web_app_url"]
+                            if opt.get("request_contact"):
+                                act_dict["request_contact"] = True
                             actions.append(act_dict)
             else:
                 text = response.get("response", {}).get("text", "")

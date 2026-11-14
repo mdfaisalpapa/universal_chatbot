@@ -37,6 +37,8 @@ class MultipleChoiceNode(BaseFlowNode):
                 opt_dict["url"] = interpolate_template(opt["url"], context.variables)
             if opt.get("web_app_url"):
                 opt_dict["web_app_url"] = interpolate_template(opt["web_app_url"], context.variables)
+            if opt.get("request_contact"):
+                opt_dict["request_contact"] = True
             rendered_options.append(opt_dict)
 
         msg = {
