@@ -806,11 +806,17 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                 let extraClass = "";
 
                 if (isBackwards) {
-                    // Backward return loop (e.g. returning back to menu)
-                    // Route smoothly from right/bottom around in a curved arc to avoid cutting through middle nodes
+                    // Backward return loop (e.g. returning back to menu or wrapped row)
                     extraClass = "is-return-loop";
-                    const loopDrop = Math.max(startY, endY) + 50;
-                    path = `M ${startX} ${startY} C ${startX + 80} ${startY}, ${startX + 80} ${loopDrop}, ${(startX + endX) / 2} ${loopDrop} C ${endX - 80} ${loopDrop}, ${endX - 80} ${endY}, ${endX} ${endY}`;
+                    if (Math.abs(startY - endY) > 80) {
+                        // Connection between different rows: route cleanly through the vertical channel between rows
+                        const midY = (startY + endY) / 2;
+                        path = `M ${startX} ${startY} C ${startX + 60} ${startY}, ${startX + 60} ${midY}, ${(startX + endX) / 2} ${midY} C ${endX - 60} ${midY}, ${endX - 60} ${endY}, ${endX} ${endY}`;
+                    } else {
+                        // Same row backwards: route smoothly below
+                        const loopDrop = Math.max(startY, endY) + 50;
+                        path = `M ${startX} ${startY} C ${startX + 80} ${startY}, ${startX + 80} ${loopDrop}, ${(startX + endX) / 2} ${loopDrop} C ${endX - 80} ${loopDrop}, ${endX - 80} ${endY}, ${endX} ${endY}`;
+                    }
                 } else {
                     // Smooth horizontal cubic bezier curve
                     const dx = Math.max(50, (endX - startX) * 0.55);
@@ -1859,59 +1865,60 @@ window.UniversalChatbot = window.UniversalChatbot || {};
 
             const startNode = this.nodes.find(n => normalizeType(n.node_type) === "start") || this.nodes[0];
             const visited = new Set();
-            const levels = {};
+            const orderedNodes = [];
 
-            // BFS to assign topological depth levels
-            const queue = [{ id: startNode.node_id, level: 0 }];
+            // Topological BFS traversal to establish the logical sequence of nodes
+            const queue = [startNode.node_id];
             visited.add(startNode.node_id);
 
             while (queue.length > 0) {
-                const { id, level } = queue.shift();
-                if (!levels[level]) levels[level] = [];
-                levels[level].push(id);
+                const id = queue.shift();
+                orderedNodes.push(id);
 
                 const neighbors = adj[id] || [];
                 neighbors.forEach(nbr => {
                     if (!visited.has(nbr)) {
                         visited.add(nbr);
-                        queue.push({ id: nbr, level: level + 1 });
+                        queue.push(nbr);
                     }
                 });
             }
 
-            // Any disconnected nodes placed in an extra column
-            const unvisited = this.nodes.filter(n => !visited.has(n.node_id));
-            if (unvisited.length > 0) {
-                const maxLevel = Math.max(...Object.keys(levels).map(k => parseInt(k, 10)), 0) + 1;
-                levels[maxLevel] = unvisited.map(n => n.node_id);
-            }
+            // Append any disconnected nodes
+            this.nodes.forEach(n => {
+                if (!visited.has(n.node_id)) {
+                    visited.add(n.node_id);
+                    orderedNodes.push(n.node_id);
+                }
+            });
 
-            // Assign clean canvas (x, y) coordinates
-            const colWidth = 280;
-            const rowHeight = 140;
+            // Available viewport canvas dimension
+            const canvasWidth = this.$canvasContainer ? this.$canvasContainer.width() : 1200;
+            const colWidth = 290;
+            const rowHeight = 220;
             const startX = 80;
             const startY = 80;
 
-            Object.keys(levels).forEach(lvlStr => {
-                const lvl = parseInt(lvlStr, 10);
-                const nodeIds = levels[lvl];
-                const totalH = nodeIds.length * rowHeight;
-                const offsetTop = Math.max(startY, (startY + 400) - (totalH / 2));
+            // Intelligently calculate max columns based on canvas width (minimum 3, maximum 5, default 4)
+            const maxCols = Math.max(3, Math.min(5, Math.floor((canvasWidth - startX) / colWidth)));
 
-                nodeIds.forEach((nid, idx) => {
-                    const nodeObj = this.nodes.find(n => n.node_id === nid);
-                    if (nodeObj) {
-                        nodeObj.x = startX + (lvl * colWidth);
-                        nodeObj.y = offsetTop + (idx * rowHeight);
-                        if (!nodeObj.configuration) nodeObj.configuration = {};
-                        nodeObj.configuration.ui_x = nodeObj.x;
-                        nodeObj.configuration.ui_y = nodeObj.y;
-                    }
-                });
+            orderedNodes.forEach((nid, index) => {
+                const nodeObj = this.nodes.find(n => n.node_id === nid);
+                if (!nodeObj) return;
+
+                const row = Math.floor(index / maxCols);
+                const col = index % maxCols;
+
+                nodeObj.x = startX + (col * colWidth);
+                nodeObj.y = startY + (row * rowHeight);
+
+                if (!nodeObj.configuration) nodeObj.configuration = {};
+                nodeObj.configuration.ui_x = nodeObj.x;
+                nodeObj.configuration.ui_y = nodeObj.y;
             });
 
             this.renderAll();
-            frappe.show_alert({ message: __("Canvas layout automatically organized!"), indicator: "green" });
+            frappe.show_alert({ message: __("Canvas layout automatically organized into 2D grid!"), indicator: "green" });
         }
 
         exportFlow() {
