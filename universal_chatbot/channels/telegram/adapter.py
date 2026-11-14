@@ -52,6 +52,7 @@ class TelegramChannelAdapter(BaseChannelAdapter):
         )
 
         # 3. Sender / User extraction
+        shared_phone = ""
         if is_callback:
             from_user = callback_query.get("from", {})
             chat = callback_query.get("message", {}).get("chat", {})
@@ -70,8 +71,11 @@ class TelegramChannelAdapter(BaseChannelAdapter):
                 or ""
             )
             msg_id = str(message_data.get("message_id") or raw_payload.get("message_id") or uuid.uuid4())
+            contact_obj = message_data.get("contact") or {}
+            shared_phone = contact_obj.get("phone_number", "")
             text = str(
                 message_data.get("text")
+                or shared_phone
                 or raw_payload.get("text")
                 or raw_payload.get("content")
                 or ""
@@ -84,8 +88,9 @@ class TelegramChannelAdapter(BaseChannelAdapter):
         # 4. Message object
         message_dict = {
             "message_id": msg_id,
-            "type": "text",
+            "type": "contact" if shared_phone else "text",
             "text": text,
+            "phone_number": shared_phone,
         }
 
         # 5. Metadata extraction
@@ -99,6 +104,7 @@ class TelegramChannelAdapter(BaseChannelAdapter):
             "username": from_user.get("username", ""),
             "update_id": raw_payload.get("update_id"),
             "is_callback": is_callback,
+            "phone_number": shared_phone,
         }
 
         # Transfer any extra metadata
@@ -165,31 +171,53 @@ class TelegramChannelAdapter(BaseChannelAdapter):
             "parse_mode": "HTML",
         }
 
-        # Build inline keyboard buttons if options exist
+        # Build keyboard buttons if options exist
         if actions:
-            inline_keyboard = []
-            row: List[Dict[str, str]] = []
-            for act in actions:
-                lbl = act.get("label") or act.get("text") or act.get("value") or ""
-                url = act.get("url")
-                web_app_url = act.get("web_app_url")
-                val = act.get("value") or act.get("label") or ""
+            has_request_contact = any(act.get("request_contact") for act in actions)
+            if has_request_contact:
+                # Telegram requires ReplyKeyboardMarkup for request_contact buttons
+                reply_keyboard = []
+                row = []
+                for act in actions:
+                    lbl = act.get("label") or act.get("text") or act.get("value") or ""
+                    btn = {"text": str(lbl)}
+                    if act.get("request_contact"):
+                        btn["request_contact"] = True
+                    row.append(btn)
+                    if len(row) >= 2:
+                        reply_keyboard.append(row)
+                        row = []
+                if row:
+                    reply_keyboard.append(row)
+                payload["reply_markup"] = {
+                    "keyboard": reply_keyboard,
+                    "resize_keyboard": True,
+                    "one_time_keyboard": True,
+                }
+            else:
+                inline_keyboard = []
+                row: List[Dict[str, str]] = []
+                for act in actions:
+                    lbl = act.get("label") or act.get("text") or act.get("value") or ""
+                    url = act.get("url")
+                    web_app_url = act.get("web_app_url")
+                    val = act.get("value") or act.get("label") or ""
 
-                btn: Dict[str, Any] = {"text": str(lbl)}
-                if web_app_url:
-                    btn["web_app"] = {"url": str(web_app_url)}
-                elif url:
-                    btn["url"] = str(url)
-                else:
-                    btn["callback_data"] = str(val)[:64]
+                    btn: Dict[str, Any] = {"text": str(lbl)}
+                    if web_app_url:
+                        btn["web_app"] = {"url": str(web_app_url)}
+                    elif url:
+                        btn["url"] = str(url)
+                    else:
+                        btn["callback_data"] = str(val)[:64]
 
-                row.append(btn)
-                if len(row) >= 2:
+                    row.append(btn)
+                    if len(row) >= 2:
+                        inline_keyboard.append(row)
+                        row = []
+                if row:
                     inline_keyboard.append(row)
-                    row = []
-            if row:
-                inline_keyboard.append(row)
-            payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
+                payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
 
         return payload
 

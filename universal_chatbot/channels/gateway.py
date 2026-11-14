@@ -241,6 +241,14 @@ class ChannelGateway:
             state["context"] = {}
         state["context"]["channel"] = channel_type
         state["context"]["channel_user_id"] = external_id
+        # Pass shared phone number if present in message or metadata
+        phone_num = (
+            incoming_msg.message.get("phone_number")
+            or incoming_msg.metadata.get("phone_number")
+            or ""
+        )
+        if phone_num:
+            state["context"]["phone_number"] = phone_num
 
         flow_id = resolve_flow_for_bot(deployment.chatbot, deployment)
         flow_def = repo.get_flow_definition(flow_id)

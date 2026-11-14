@@ -70,7 +70,14 @@ class MultipleChoiceNode(BaseFlowNode):
         matched_value = user_input
         matched_target_node = None
 
+        # If user shared a contact or phone number, match any request_contact option
+        has_shared_phone = bool(context.incoming_message and context.incoming_message.message.get("phone_number"))
+
         for opt in raw_options:
+            if has_shared_phone and opt.get("request_contact"):
+                matched_value = opt.get("action") or opt.get("value") or "share_contact"
+                matched_target_node = opt.get("target_node")
+                break
             val = str(opt.get("value") or opt.get("action") or "").strip()
             lbl = str(opt.get("label", "")).strip()
             if user_input.lower() in (val.lower(), lbl.lower()):
