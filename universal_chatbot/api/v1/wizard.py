@@ -1470,7 +1470,9 @@ def discover_remote_actions(
     # 1. Frappe RPC / Python Module Introspection (e.g. society_erp.api)
     # -------------------------------------------------------------
     if source_type.lower() in ("rpc", "python", "module"):
-        module_name = (identifier_or_url or "").strip().rstrip(".py")
+        module_name = (identifier_or_url or "").strip()
+        if module_name.endswith(".py"):
+            module_name = module_name[:-3]
         if not module_name:
             frappe.throw(_("Please provide a Python module path to introspect (e.g. 'society_erp.api')."))
 
