@@ -6,6 +6,25 @@ frappe.ui.form.on("Chatbot", {
             renderIntegrationManagement(frm);
             renderFlowManagement(frm);
             renderChannelManagement(frm);
+
+            // Approach 3: In Production or for safe deactivation, provide 1-click Archive button
+            if (frm.doc.status !== "Archived") {
+                frm.add_custom_button(__("📦 Archive Bot"), function() {
+                    frappe.confirm(
+                        __("Archiving this bot will deactivate all its channels and deployments without deleting conversation history. Proceed?"),
+                        function() {
+                            frm.set_value("status", "Archived");
+                            frm.set_value("is_published", 0);
+                            frm.save();
+                        }
+                    );
+                }, __("Actions"));
+            } else {
+                frm.add_custom_button(__("♻️ Restore / Unarchive"), function() {
+                    frm.set_value("status", "Active");
+                    frm.save();
+                }, __("Actions"));
+            }
         } else {
             // New bot: Offer Guided Setup Wizard
             frm.add_custom_button(__("✨ Guided Bot Setup"), function() {
@@ -253,9 +272,20 @@ function renderFlowManagement(frm) {
 
 function openImportFlowDialog(frm) {
     const botSlug = frm.doc.name;
+    const botTitle = frm.doc.title || frm.doc.bot_name || botSlug;
     const d = new frappe.ui.Dialog({
         title: __("📥 Import Conversation Flow JSON"),
         fields: [
+            {
+                fieldname: "target_bot_info",
+                fieldtype: "HTML",
+                options: `
+                    <div style="background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; padding:10px 12px; margin-bottom:12px; font-size:12px; color:#166534;">
+                        <strong>Target Bot:</strong> <code>${escapeHtml(botSlug)}</code> (${escapeHtml(botTitle)})<br>
+                        <span style="font-size:11px; color:#15803d;">Imported nodes and actions will automatically bind to the REST integrations and credentials configured for this bot.</span>
+                    </div>
+                `
+            },
             {
                 fieldname: "flow_file",
                 fieldtype: "Attach",
@@ -756,15 +786,15 @@ function renderIntegrationManagement(frm) {
                                         <span style="margin-left:6px;">${escapeHtml(integ.base_url)}</span>
                                     </div>
                                 </div>
-                                <div style="display:flex; align-items:center; gap:6px;">
-                                    <button type="button" class="btn btn-default btn-xs btn-toggle-integ-details" data-target="#integ-details-${escapeHtml(integ.name)}" style="font-size:11px;">
+                                <div style="display:flex; align-items:center; gap:8px;">
+                                    <button type="button" class="btn btn-default btn-xs btn-toggle-integ-details" data-target="#integ-details-${escapeHtml(integ.name)}" style="font-size:11px; padding:4px 8px;">
                                         <i class="fa fa-chevron-down"></i> ${__("Actions & Endpoints")} (${integ.actions_count})
                                     </button>
-                                    <button type="button" class="btn btn-default btn-xs btn-edit-integration" data-integration="${escapeHtml(integ.name)}" title="${__("Edit Integration Configuration")}" style="font-size:11px;">
+                                    <button type="button" class="btn btn-default btn-xs btn-edit-integration" data-integration="${escapeHtml(integ.name)}" title="${__("Edit Integration Configuration")}" style="font-size:11px; padding:4px 8px;">
                                         <i class="fa fa-pencil text-primary"></i> ${__("Edit")}
                                     </button>
-                                    <button type="button" class="btn btn-default btn-xs text-danger btn-delete-integration" data-integration="${escapeHtml(integ.name)}" title="${__("Delete Integration")}" style="font-size:11px;">
-                                        <i class="fa fa-trash"></i>
+                                    <button type="button" class="btn btn-danger btn-xs btn-delete-integration" data-integration="${escapeHtml(integ.name)}" title="${__("Delete Integration")}" style="font-size:11px; padding:4px 8px;">
+                                        <i class="fa fa-trash"></i> ${__("Delete")}
                                     </button>
                                 </div>
                             </div>
@@ -779,11 +809,20 @@ function renderIntegrationManagement(frm) {
 
                             <!-- Collapsible Actions & Endpoints Panel -->
                             <div id="integ-details-${escapeHtml(integ.name)}" class="integ-actions-collapse" style="border-top:1px dashed #cbd5e1; padding-top:10px; margin-top:8px;">
-                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; flex-wrap:wrap; gap:8px;">
                                     <span style="font-size:12px; font-weight:600; color:#334155;">
                                         <i class="fa fa-cogs text-primary" style="margin-right:4px;"></i> ${__("Configured Actions & Endpoints")}
                                     </span>
-                                    <div style="display:flex; gap:6px;">
+                                    <div style="display:flex; gap:6px; align-items:center;">
+                                        <button type="button" class="btn btn-default btn-xs btn-toolbar-test-action" data-integration="${escapeHtml(integ.name)}" style="font-size:11px; display:none;">
+                                            <i class="fa fa-play text-success"></i> ${__("Test Selected")}
+                                        </button>
+                                        <button type="button" class="btn btn-default btn-xs btn-toolbar-edit-action" data-integration="${escapeHtml(integ.name)}" style="font-size:11px; display:none;">
+                                            <i class="fa fa-pencil text-primary"></i> ${__("Edit Selected")}
+                                        </button>
+                                        <button type="button" class="btn btn-danger btn-xs btn-bulk-delete-actions" data-integration="${escapeHtml(integ.name)}" style="font-size:11px; display:none;">
+                                            <i class="fa fa-trash"></i> ${__("Delete Selected")} (<span class="selected-count">0</span>)
+                                        </button>
                                         <button type="button" class="btn btn-default btn-xs btn-discover-actions-modal" data-integration="${escapeHtml(integ.name)}" data-type="${escapeHtml(integ.integration_type)}" style="font-size:11px;">
                                             <i class="fa fa-magic text-info"></i> ${__("🔍 Auto-Discover Actions")}
                                         </button>
@@ -793,15 +832,17 @@ function renderIntegrationManagement(frm) {
                                     </div>
                                 </div>
 
-                                <div class="table-responsive" style="margin: 0; background:#fff; border:1px solid #e2e8f0; border-radius:4px;">
-                                    <table class="table table-sm table-hover" style="margin-bottom:0; font-size:11px;">
+                                <div class="table-responsive" style="margin: 0; background:#fff; border:1px solid #e2e8f0; border-radius:4px; overflow-x: auto;">
+                                    <table class="table table-sm table-hover" style="margin-bottom:0; font-size:11px; width: 100%;">
                                         <thead>
                                             <tr style="background:#f8fafc; color:#475569;">
-                                                <th style="width:25%; font-weight:600;">${__("Action Name")}</th>
-                                                <th style="width:10%; font-weight:600;">${__("Method")}</th>
-                                                <th style="width:28%; font-weight:600;">${__("Operation / API Method")}</th>
-                                                <th style="width:12%; font-weight:600;">${__("Used in Flows")}</th>
-                                                <th style="width:25%; text-align:right; font-weight:600;">${__("Actions")}</th>
+                                                <th style="width:36px; text-align:center;">
+                                                    <input type="checkbox" class="chk-select-all-actions" data-integration="${escapeHtml(integ.name)}" title="${__("Select All")}">
+                                                </th>
+                                                <th style="width:28%; font-weight:600;">${__("Action Name")}</th>
+                                                <th style="width:70px; font-weight:600;">${__("Method")}</th>
+                                                <th style="width:100px; font-weight:600;">${__("Used in Flows")}</th>
+                                                <th style="font-weight:600;">${__("Operation / API Method")}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -821,6 +862,9 @@ function renderIntegrationManagement(frm) {
 
                                                 return `
                                                     <tr>
+                                                        <td style="vertical-align:middle; text-align:center;">
+                                                            <input type="checkbox" class="chk-action-item" data-integration="${escapeHtml(integ.name)}" data-action="${escapeHtml(act.name)}" data-action-name="${escapeHtml(act.action_name)}">
+                                                        </td>
                                                         <td style="vertical-align:middle; font-weight:600; font-family:monospace; color:#1e293b;">
                                                             <div>⚡ ${escapeHtml(act.action_name)}</div>
                                                             ${paramList.length > 0 ? `
@@ -837,22 +881,11 @@ function renderIntegrationManagement(frm) {
                                                         <td style="vertical-align:middle;">
                                                             <span class="badge ${methodColor}" style="font-size:9px; font-family:monospace;">${escapeHtml(act.method || 'POST')}</span>
                                                         </td>
-                                                        <td style="vertical-align:middle; font-family:monospace; color:#475569;">
-                                                            <code>${escapeHtml(act.operation)}</code>
-                                                        </td>
                                                         <td style="vertical-align:middle;">
                                                             ${act.is_used ? '<span class="badge badge-primary" style="font-size:9px;"><i class="fa fa-check"></i> Yes</span>' : '<span class="badge badge-light" style="font-size:9px; color:#94a3b8;">No</span>'}
                                                         </td>
-                                                        <td style="vertical-align:middle; text-align:right; white-space:nowrap;">
-                                                            <button type="button" class="btn btn-default btn-xs btn-test-single-action" data-integration="${escapeHtml(integ.name)}" data-action-name="${escapeHtml(act.action_name)}" title="${__("Test Dry Run on this Action")}" style="margin-right:3px;">
-                                                                <i class="fa fa-play text-success"></i> ${__("Test")}
-                                                            </button>
-                                                            <button type="button" class="btn btn-default btn-xs btn-edit-single-action" data-integration="${escapeHtml(integ.name)}" data-action="${escapeHtml(act.name)}" title="${__("Edit Action & Schema")}" style="margin-right:3px;">
-                                                                <i class="fa fa-pencil text-primary"></i> ${__("Edit")}
-                                                            </button>
-                                                            <button type="button" class="btn btn-default btn-xs text-danger btn-delete-single-action" data-action="${escapeHtml(act.name)}" data-action-name="${escapeHtml(act.action_name)}" title="${__("Delete Action")}">
-                                                                <i class="fa fa-trash"></i>
-                                                            </button>
+                                                        <td style="vertical-align:middle; font-family:monospace; color:#475569; word-break:break-all;">
+                                                            <code>${escapeHtml(act.operation)}</code>
                                                         </td>
                                                     </tr>
                                                 `;
@@ -940,7 +973,100 @@ function renderIntegrationManagement(frm) {
                 openSingleActionDialog(frm, iname, actObj);
             });
 
-            // Wire "Delete Action"
+            // Wire Checkbox selection and Toolbar Actions
+            function updateBulkDeleteState(integName) {
+                const $scope = $wrapper.find(`#integ-details-${integName}`);
+                const total = $scope.find(".chk-action-item").length;
+                const checked = $scope.find(".chk-action-item:checked").length;
+                const $btnBulk = $wrapper.find(`.btn-bulk-delete-actions[data-integration="${integName}"]`);
+                const $btnTest = $wrapper.find(`.btn-toolbar-test-action[data-integration="${integName}"]`);
+                const $btnEdit = $wrapper.find(`.btn-toolbar-edit-action[data-integration="${integName}"]`);
+                const $chkAll = $wrapper.find(`.chk-select-all-actions[data-integration="${integName}"]`);
+
+                $btnBulk.find(".selected-count").text(checked);
+                if (checked > 0) {
+                    $btnBulk.fadeIn(150);
+                } else {
+                    $btnBulk.fadeOut(150);
+                }
+
+                // If EXACTLY ONE action is selected: show Test & Edit in the top toolbar
+                // If MULTIPLE actions or NONE are selected: hide Test & Edit from the top toolbar
+                if (checked === 1) {
+                    const $checkedItem = $scope.find(".chk-action-item:checked").first();
+                    const aname = $checkedItem.data("action-name");
+                    const fullDocName = $checkedItem.data("action");
+                    $btnTest.data("action-name", aname).fadeIn(150);
+                    $btnEdit.data("action", fullDocName).fadeIn(150);
+                } else {
+                    $btnTest.fadeOut(150);
+                    $btnEdit.fadeOut(150);
+                }
+
+                $chkAll.prop("checked", total > 0 && checked === total);
+            }
+
+            // Wire Top Toolbar "Test Selected"
+            $wrapper.find(".btn-toolbar-test-action").off("click").on("click", function() {
+                const iname = $(this).data("integration");
+                const aname = $(this).data("action-name");
+                const integObj = integrations.find(i => i.name === iname);
+                openTestActionDialog(frm, integObj, aname);
+            });
+
+            // Wire Top Toolbar "Edit Selected"
+            $wrapper.find(".btn-toolbar-edit-action").off("click").on("click", function() {
+                const iname = $(this).data("integration");
+                const fullActionName = $(this).data("action");
+                const integObj = integrations.find(i => i.name === iname);
+                const actObj = (integObj && integObj.actions) ? integObj.actions.find(a => a.name === fullActionName) : null;
+                openSingleActionDialog(frm, iname, actObj);
+            });
+
+            $wrapper.find(".chk-select-all-actions").off("change").on("change", function() {
+                const iname = $(this).data("integration");
+                const isChecked = $(this).is(":checked");
+                const $scope = $wrapper.find(`#integ-details-${iname}`);
+                $scope.find(".chk-action-item").prop("checked", isChecked);
+                updateBulkDeleteState(iname);
+            });
+
+            $wrapper.find(".chk-action-item").off("change").on("change", function() {
+                const iname = $(this).data("integration");
+                updateBulkDeleteState(iname);
+            });
+
+            // Wire "Delete Selected" (Bulk Delete)
+            $wrapper.find(".btn-bulk-delete-actions").off("click").on("click", function() {
+                const iname = $(this).data("integration");
+                const $scope = $wrapper.find(`#integ-details-${iname}`);
+                const selectedNames = [];
+                $scope.find(".chk-action-item:checked").each(function() {
+                    selectedNames.push($(this).data("action"));
+                });
+
+                if (selectedNames.length === 0) return;
+
+                frappe.confirm(
+                    __("Are you sure you want to permanently delete <strong>{0}</strong> selected action(s)?", [selectedNames.length]),
+                    function() {
+                        frappe.call({
+                            method: "universal_chatbot.api.v1.wizard.bulk_delete_integration_actions",
+                            args: { action_names: JSON.stringify(selectedNames) },
+                            freeze: true,
+                            freeze_message: __("Deleting selected actions..."),
+                            callback: function(res) {
+                                if (res.message && res.message.status === "success") {
+                                    frappe.show_alert({ message: res.message.message, indicator: "green" });
+                                    renderIntegrationManagement(frm);
+                                }
+                            }
+                        });
+                    }
+                );
+            });
+
+            // Wire "Delete Action" (Single)
             $wrapper.find(".btn-delete-single-action").off("click").on("click", function() {
                 const fullActionName = $(this).data("action");
                 const actionLabel = $(this).data("action-name") || fullActionName;
@@ -1006,7 +1132,7 @@ function openIntegrationDialog(frm, existingData) {
                 fieldtype: "Data",
                 label: __("Integration Name / Identifier"),
                 reqd: 1,
-                read_only: isEdit ? 1 : 0,
+                read_only: 0,
                 default: existingData ? existingData.integration_name : "",
                 placeholder: __("e.g. society_erp_connector")
             },
@@ -1076,7 +1202,8 @@ function openIntegrationDialog(frm, existingData) {
                     timeout: vals.timeout || 15,
                     auth_type: vals.auth_type,
                     api_key: vals.api_key,
-                    api_secret: vals.api_secret
+                    api_secret: vals.api_secret,
+                    old_integration_name: isEdit ? existingData.name : null
                 },
                 freeze: true,
                 freeze_message: __("Saving Integration..."),
@@ -1177,6 +1304,102 @@ function openTestActionDialog(frm, integObj, defaultActionName) {
 
     const actionOptions = integObj.actions.map(a => a.action_name).join("\n");
     const chosenAction = defaultActionName || integObj.actions[0].action_name;
+
+    // Helper to generate sample parameters from action's input_schema
+    function getSampleParamsForAction(actionName) {
+        const act = integObj.actions.find(a => a.action_name === actionName);
+        if (!act) return JSON.stringify({ flat_number: "TB2-203" }, null, 2);
+
+        let schema = {};
+        try {
+            schema = typeof act.input_schema === "string" ? JSON.parse(act.input_schema || "{}") : (act.input_schema || {});
+        } catch (e) {
+            schema = {};
+        }
+
+        const props = schema.properties || {};
+        const reqs = schema.required || Object.keys(props);
+        const sample = {};
+
+        // Populate sample values intelligently based on property name and type
+        Object.keys(props).forEach(function(key) {
+            const p = props[key] || {};
+            const pType = (p.type || "string").toLowerCase();
+
+            if (key === "channel") {
+                sample[key] = "telegram";
+            } else if (key === "channel_user_id") {
+                sample[key] = "12345678";
+            } else if (key === "flat_number" || key === "flat") {
+                sample[key] = "TB2-203";
+            } else if (key === "for_user" || key === "email" || key === "user") {
+                sample[key] = "resident@kvc3aoa.co.in";
+            } else if (key === "passcode") {
+                sample[key] = "TB2-203-1234";
+            } else if (key === "visitor_name") {
+                sample[key] = "Ramesh Kumar";
+            } else if (pType === "integer" || pType === "number") {
+                sample[key] = p.default || 1;
+            } else if (pType === "boolean") {
+                sample[key] = p.default || true;
+            } else {
+                sample[key] = p.default || (reqs.includes(key) ? "sample_value" : "");
+            }
+        });
+
+        // Fallback if schema was completely empty
+        if (Object.keys(sample).length === 0) {
+            return JSON.stringify({ flat_number: "TB2-203" }, null, 2);
+        }
+
+        return JSON.stringify(sample, null, 2);
+    }
+
+    // Helper to format input schema & output mapping preview HTML
+    function getSchemaPreviewHtml(actionName) {
+        const act = integObj.actions.find(a => a.action_name === actionName);
+        if (!act) return "";
+
+        let inSchema = {};
+        let outMap = {};
+        try {
+            inSchema = typeof act.input_schema === "string" ? JSON.parse(act.input_schema || "{}") : (act.input_schema || {});
+        } catch (e) {}
+        try {
+            outMap = typeof act.output_mapping === "string" ? JSON.parse(act.output_mapping || "{}") : (act.output_mapping || {});
+        } catch (e) {}
+
+        const reqs = inSchema.required || [];
+        const props = inSchema.properties || {};
+        const outKeys = Object.keys(outMap || {});
+
+        const propBadges = Object.keys(props).map(k => {
+            const isReq = reqs.includes(k);
+            return `<span class="badge ${isReq ? 'badge-primary' : 'badge-light'}" style="font-family:monospace; font-size:10px; margin-right:4px;">${k}${isReq ? ' *' : ''}</span>`;
+        }).join("");
+
+        const outBadges = outKeys.map(k => {
+            return `<span class="badge badge-success" style="font-family:monospace; font-size:10px; margin-right:4px;">${k}</span>`;
+        }).join("");
+
+        return `
+            <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px; padding:8px 12px; margin-top:4px; font-size:11px;">
+                <div style="margin-bottom:4px;">
+                    <strong>Endpoint:</strong> <code style="color:#0284c7;">${escapeHtml(act.operation || "")}</code>
+                    <span class="badge badge-info" style="font-size:9px; margin-left:4px;">${escapeHtml(act.method || "POST")}</span>
+                </div>
+                <div style="margin-bottom:4px;">
+                    <strong>Required / Input Schema:</strong>
+                    ${propBadges || '<span class="text-muted">None (Accepts any or no parameters)</span>'}
+                </div>
+                <div>
+                    <strong>Output Mapping (Returns):</strong>
+                    ${outBadges || '<span class="text-muted">Direct / Raw response</span>'}
+                </div>
+            </div>
+        `;
+    }
+
     const d = new frappe.ui.Dialog({
         title: __("🧪 Test Dry Run: {0} ({1})", [chosenAction, integObj.integration_name]),
         fields: [
@@ -1186,14 +1409,26 @@ function openTestActionDialog(frm, integObj, defaultActionName) {
                 label: __("Action Name"),
                 options: actionOptions,
                 default: chosenAction,
-                reqd: 1
+                reqd: 1,
+                change: function() {
+                    const selected = d.get_value("action_name");
+                    d.set_value("sample_parameters", getSampleParamsForAction(selected));
+                    if (d.fields_dict.schema_preview) {
+                        d.fields_dict.schema_preview.$wrapper.html(getSchemaPreviewHtml(selected));
+                    }
+                }
+            },
+            {
+                fieldname: "schema_preview",
+                fieldtype: "HTML",
+                label: __("Action Schema & Mapping")
             },
             {
                 fieldname: "sample_parameters",
                 fieldtype: "Code",
                 label: __("Test Parameters (JSON)"),
                 options: "JSON",
-                default: JSON.stringify({ flat_number: "TB2-203" }, null, 2)
+                default: getSampleParamsForAction(chosenAction)
             },
             {
                 fieldtype: "Section Break",
@@ -1241,7 +1476,12 @@ function openTestActionDialog(frm, integObj, defaultActionName) {
             });
         }
     });
+
     d.show();
+    // Render initial schema preview
+    if (d.fields_dict.schema_preview) {
+        d.fields_dict.schema_preview.$wrapper.html(getSchemaPreviewHtml(chosenAction));
+    }
 }
 
 /**

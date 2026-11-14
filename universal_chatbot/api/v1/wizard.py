@@ -1182,7 +1182,11 @@ def get_bot_integrations(bot_slug: str) -> List[Dict[str, Any]]:
         actions_list = []
         is_used_by_bot = False
         for a in actions:
-            is_used = (a.action_name in used_action_names) or (a.name in used_action_names)
+            is_used = (
+                (a.action_name in used_action_names)
+                or (a.name in used_action_names)
+                or any(u.endswith(f"-{a.action_name}") for u in used_action_names)
+            )
             if is_used:
                 is_used_by_bot = True
             actions_list.append({
@@ -1227,8 +1231,11 @@ def save_chatbot_integration(
     api_secret: str = "",
     chatbot: Optional[str] = None,
     actions: Optional[Any] = None,
+    old_integration_name: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Create or update a Chatbot Integration with Credentials and Actions."""
+    """Create or update a Chatbot Integration with Credentials and Actions.
+    Supports renaming an integration and smoothly cascading to linked credentials, actions, and flows.
+    """
     frappe.has_permission("Chatbot Integration", "write", throw=True)
 
     iname = (integration_name or "").strip()
@@ -1238,6 +1245,28 @@ def save_chatbot_integration(
     burl = (base_url or "").strip().rstrip("/")
     if not burl:
         frappe.throw(_("Base URL is required."))
+
+    old_name = (old_integration_name or "").strip()
+
+    # Handle Renaming: If old_integration_name provided and differs, rename the document
+    if old_name and old_name != iname and frappe.db.exists("Chatbot Integration", old_name):
+        frappe.rename_doc("Chatbot Integration", old_name, iname, force=True)
+        # Update and rename linked Integration Credential so encrypted api_secret is preserved
+        old_cred = f"CRED-{old_name}"
+        new_cred = f"CRED-{iname}"
+        if frappe.db.exists("Integration Credential", old_cred) and not frappe.db.exists("Integration Credential", new_cred):
+            frappe.rename_doc("Integration Credential", old_cred, new_cred, force=True)
+            frappe.db.set_value("Integration Credential", new_cred, "integration", iname)
+        else:
+            for c in frappe.get_all("Integration Credential", filters={"integration": old_name}, pluck="name"):
+                frappe.db.set_value("Integration Credential", c, "integration", iname)
+
+        # Update linked Integration Actions
+        for a in frappe.get_all("Integration Action", filters={"integration": old_name}, fields=["name", "action_name"]):
+            frappe.db.set_value("Integration Action", a.name, "integration", iname)
+            new_action_docname = f"{iname}-{a.action_name}"
+            if a.name != new_action_docname and not frappe.db.exists("Integration Action", new_action_docname):
+                frappe.rename_doc("Integration Action", a.name, new_action_docname, force=True)
 
     # 1. Upsert Chatbot Integration
     if frappe.db.exists("Chatbot Integration", iname):
@@ -1428,6 +1457,34 @@ def delete_integration_action(action_name: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+def bulk_delete_integration_actions(action_names: Any) -> Dict[str, Any]:
+    """Bulk delete multiple Integration Actions at once."""
+    frappe.has_permission("Integration Action", "delete", throw=True)
+    names = []
+    if isinstance(action_names, str):
+        try:
+            names = json.loads(action_names)
+        except Exception:
+            names = [s.strip() for s in action_names.split(",") if s.strip()]
+    elif isinstance(action_names, (list, tuple)):
+        names = list(action_names)
+
+    deleted_count = 0
+    for aname in names:
+        aname_clean = str(aname).strip()
+        if aname_clean and frappe.db.exists("Integration Action", aname_clean):
+            frappe.delete_doc("Integration Action", aname_clean, force=1, ignore_permissions=True)
+            deleted_count += 1
+
+    frappe.db.commit()
+    return {
+        "status": "success",
+        "deleted_count": deleted_count,
+        "message": _("Successfully deleted {0} action(s).").format(deleted_count),
+    }
+
+
+@frappe.whitelist()
 def discover_remote_actions(
     integration_name: str,
     source_type: str = "frappe",
@@ -1478,13 +1535,14 @@ def discover_remote_actions(
 
         import inspect
         import importlib
+        import pkgutil
+        import ast
 
         target_module = None
         # Attempt to import locally from bench apps
         try:
             target_module = importlib.import_module(module_name)
         except Exception:
-            # If sub-module syntax e.g. society_erp.api, also try importing .api
             pass
 
         # If not imported directly, try fallback variants
@@ -1498,155 +1556,174 @@ def discover_remote_actions(
         if not target_module:
             frappe.throw(_("Could not import module '{0}'. Ensure the app is installed in the bench or the module path is correct.").format(module_name))
 
-        # Inspect all functions in module
-        import ast
+        # Collect target modules: if target is a package, scan submodules as well
+        modules_to_inspect = [(module_name, target_module)]
+        if hasattr(target_module, "__path__"):
+            for _, sub_name, is_pkg in pkgutil.iter_modules(target_module.__path__):
+                if sub_name.startswith("_") or sub_name.endswith("_summary"):
+                    continue
+                full_sub_name = f"{module_name}.{sub_name}"
+                try:
+                    sub_mod = importlib.import_module(full_sub_name)
+                    modules_to_inspect.append((full_sub_name, sub_mod))
+                except Exception:
+                    pass
 
-        functions = inspect.getmembers(target_module, inspect.isfunction)
-        for fn_name, fn_obj in functions:
-            # Only consider functions defined directly in this module or whitelisted
-            if getattr(fn_obj, "__module__", "") != target_module.__name__ and (fn_obj not in getattr(frappe, "whitelisted", [])):
-                continue
+        seen_operations = set()
 
-            # Check if function is whitelisted in Frappe
-            is_whitelisted = (
-                fn_obj in getattr(frappe, "whitelisted", [])
-                or getattr(fn_obj, "_whitelisted", False)
-                or getattr(fn_obj, "whitelisted", False)
-            )
-
-            # Check docstring for whitelisted hint or include if explicitly in an api module
-            if not is_whitelisted and "api" in module_name.lower():
+        for curr_mod_name, curr_mod_obj in modules_to_inspect:
+            functions = inspect.getmembers(curr_mod_obj, inspect.isfunction)
+            for fn_name, fn_obj in functions:
                 if fn_name.startswith("_"):
                     continue
-                is_whitelisted = True
 
-            if not is_whitelisted or fn_name.startswith("_"):
-                continue
+                # Only consider functions defined directly in this module or whitelisted
+                if getattr(fn_obj, "__module__", "") != curr_mod_obj.__name__ and (fn_obj not in getattr(frappe, "whitelisted", [])):
+                    continue
 
-            # Extract parameter signature
-            in_props: Dict[str, Any] = {}
-            in_required: List[str] = []
+                # Check if function is whitelisted in Frappe
+                is_whitelisted = (
+                    fn_obj in getattr(frappe, "whitelisted", [])
+                    or getattr(fn_obj, "_whitelisted", False)
+                    or getattr(fn_obj, "whitelisted", False)
+                )
 
-            try:
-                sig = inspect.signature(fn_obj)
-                for p_name, p_param in sig.parameters.items():
-                    if p_name in ("self", "cls"):
-                        continue
+                # Include if in an API module namespace
+                if not is_whitelisted and "api" in curr_mod_name.lower():
+                    is_whitelisted = True
 
-                    ann_type = "string"
-                    if p_param.annotation in (int, "int"):
-                        ann_type = "integer"
-                    elif p_param.annotation in (float, "float"):
-                        ann_type = "number"
-                    elif p_param.annotation in (bool, "bool"):
-                        ann_type = "boolean"
-                    elif p_param.annotation in (dict, "dict"):
-                        ann_type = "object"
+                if not is_whitelisted:
+                    continue
 
-                    in_props[p_name] = {
-                        "type": ann_type,
-                        "title": p_name.replace("_", " ").title(),
-                    }
+                operation_path = f"/api/method/{curr_mod_name}.{fn_name}"
+                if operation_path in seen_operations:
+                    continue
+                seen_operations.add(operation_path)
 
-                    # In Frappe, if param has no default or default is None, it is often required by callers
-                    if p_param.default == inspect.Parameter.empty or p_param.default is None:
-                        in_required.append(p_name)
-            except Exception:
-                pass
+                # Extract parameter signature
+                in_props: Dict[str, Any] = {}
+                in_required: List[str] = []
 
-            # AST Analysis: Parse function source code to discover frappe.form_dict parameters,
-            # returned dictionary payloads, and frappe.response keys
-            ast_dict_keys: List[str] = []
-            try:
-                fn_src = inspect.getsource(fn_obj)
-                fn_tree = ast.parse(fn_src)
+                try:
+                    sig = inspect.signature(fn_obj)
+                    for p_name, p_param in sig.parameters.items():
+                        if p_name in ("self", "cls"):
+                            continue
 
-                # 1. Discover any parameters read via frappe.form_dict.get("param") or frappe.local.form_dict.get("param")
-                for node in ast.walk(fn_tree):
-                    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get":
-                        if isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "form_dict":
-                            if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
-                                fd_param = node.args[0].value
-                                if fd_param not in in_props and fd_param not in ("cmd", "data"):
-                                    in_props[fd_param] = {
-                                        "type": "string",
-                                        "title": fd_param.replace("_", " ").title(),
-                                    }
-                                    in_required.append(fd_param)
+                        ann_type = "string"
+                        if p_param.annotation in (int, "int"):
+                            ann_type = "integer"
+                        elif p_param.annotation in (float, "float"):
+                            ann_type = "number"
+                        elif p_param.annotation in (bool, "bool"):
+                            ann_type = "boolean"
+                        elif p_param.annotation in (dict, "dict"):
+                            ann_type = "object"
 
-                # 2. Discover return dictionary keys
-                return_var_names: List[str] = []
-                for node in ast.walk(fn_tree):
-                    if isinstance(node, ast.Return) and node.value:
-                        if isinstance(node.value, ast.Name):
-                            return_var_names.append(node.value.id)
-                        elif isinstance(node.value, ast.Dict):
-                            for k in node.value.keys:
-                                if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                                    if k.value not in ast_dict_keys:
-                                        ast_dict_keys.append(k.value)
+                        in_props[p_name] = {
+                            "type": ann_type,
+                            "title": p_name.replace("_", " ").title(),
+                        }
 
-                # Find assignments to returned variable names e.g. resp_payload = {...}
-                if return_var_names:
+                        # In Frappe, if param has no default or default is None, it is often required by callers
+                        if p_param.default == inspect.Parameter.empty:
+                            in_required.append(p_name)
+                except Exception:
+                    pass
+
+                # AST Analysis: Parse function source code to discover frappe.form_dict parameters,
+                # returned dictionary payloads, and frappe.response keys
+                ast_dict_keys: List[str] = []
+                try:
+                    fn_src = inspect.getsource(fn_obj)
+                    fn_tree = ast.parse(fn_src)
+
+                    # 1. Discover any parameters read via frappe.form_dict.get("param") or frappe.local.form_dict.get("param")
                     for node in ast.walk(fn_tree):
-                        if isinstance(node, ast.Assign):
-                            for t in node.targets:
-                                if isinstance(t, ast.Name) and t.id in return_var_names:
-                                    if isinstance(node.value, ast.Dict):
-                                        for k in node.value.keys:
-                                            if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                                                if k.value not in ast_dict_keys:
-                                                    ast_dict_keys.append(k.value)
+                        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get":
+                            if isinstance(node.func.value, ast.Attribute) and node.func.value.attr == "form_dict":
+                                if node.args and isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+                                    fd_param = node.args[0].value
+                                    if fd_param not in in_props and fd_param not in ("cmd", "data"):
+                                        in_props[fd_param] = {
+                                            "type": "string",
+                                            "title": fd_param.replace("_", " ").title(),
+                                        }
+                                        in_required.append(fd_param)
 
-                # 3. Discover frappe.response["key"] assignments
-                for node in ast.walk(fn_tree):
-                    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) and node.value.attr == "response":
-                        if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
-                            r_key = node.slice.value
-                            if r_key not in ("filecontent",) and r_key not in ast_dict_keys:
-                                ast_dict_keys.append(r_key)
-            except Exception:
-                pass
+                    # 2. Discover return dictionary keys
+                    return_var_names: List[str] = []
+                    for node in ast.walk(fn_tree):
+                        if isinstance(node, ast.Return) and node.value:
+                            if isinstance(node.value, ast.Name):
+                                return_var_names.append(node.value.id)
+                            elif isinstance(node.value, ast.Dict):
+                                for k in node.value.keys:
+                                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                                        if k.value not in ast_dict_keys:
+                                            ast_dict_keys.append(k.value)
 
-            # Extract summary/description from docstring
-            docstring = inspect.getdoc(fn_obj) or ""
-            doc_lines = [l.strip() for l in docstring.split("\n") if l.strip()]
-            summary = doc_lines[0] if doc_lines else f"Execute {module_name}.{fn_name}"
+                    # Find assignments to returned variable names e.g. resp_payload = {...}
+                    if return_var_names:
+                        for node in ast.walk(fn_tree):
+                            if isinstance(node, ast.Assign):
+                                for t in node.targets:
+                                    if isinstance(t, ast.Name) and t.id in return_var_names:
+                                        if isinstance(node.value, ast.Dict):
+                                            for k in node.value.keys:
+                                                if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                                                    if k.value not in ast_dict_keys:
+                                                        ast_dict_keys.append(k.value)
 
-            # Build Output Mapping from discovered keys
-            out_map: Dict[str, str] = {}
-            if ast_dict_keys:
-                for k in ast_dict_keys:
-                    if k not in ("message", "filecontent"):
-                        out_map[k] = k
-                # If message is the only key or present
-                if not out_map and "message" in ast_dict_keys:
-                    out_map["message"] = "message"
-            else:
-                if "dues" in fn_name.lower() or "maintenance" in fn_name.lower():
-                    out_map = {
-                        "owner_name": "owner_name",
-                        "flat_details": "flat_details",
-                        "tenant_name": "tenant_name",
-                        "outstanding_amount": "outstanding_amount",
-                    }
-                elif "user" in fn_name.lower() or "customer" in fn_name.lower():
-                    out_map = {"name": "name", "email": "email", "status": "status"}
+                    # 3. Discover frappe.response["key"] assignments
+                    for node in ast.walk(fn_tree):
+                        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute) and node.value.attr == "response":
+                            if isinstance(node.slice, ast.Constant) and isinstance(node.slice.value, str):
+                                r_key = node.slice.value
+                                if r_key not in ("filecontent",) and r_key not in ast_dict_keys:
+                                    ast_dict_keys.append(r_key)
+                except Exception:
+                    pass
+
+                # Extract summary/description from docstring
+                docstring = inspect.getdoc(fn_obj) or ""
+                doc_lines = [l.strip() for l in docstring.split("\n") if l.strip()]
+                sub_label = curr_mod_name.split(".")[-1] if "." in curr_mod_name else curr_mod_name
+                summary = doc_lines[0] if doc_lines else f"[{sub_label}] Execute {fn_name}"
+
+                # Build Output Mapping from discovered keys
+                out_map: Dict[str, str] = {}
+                if ast_dict_keys:
+                    for k in ast_dict_keys:
+                        if k not in ("message", "filecontent"):
+                            out_map[k] = k
+                    if not out_map and "message" in ast_dict_keys:
+                        out_map["message"] = "message"
                 else:
-                    out_map = {"message": "message", "status": "status"}
+                    if "dues" in fn_name.lower() or "maintenance" in fn_name.lower():
+                        out_map = {
+                            "owner_name": "owner_name",
+                            "flat_details": "flat_details",
+                            "tenant_name": "tenant_name",
+                            "outstanding_amount": "outstanding_amount",
+                        }
+                    elif "user" in fn_name.lower() or "customer" in fn_name.lower():
+                        out_map = {"name": "name", "email": "email", "status": "status"}
+                    else:
+                        out_map = {"message": "message", "status": "status"}
 
-            candidates.append({
-                "action_name": fn_name,
-                "method": "POST",
-                "operation": f"/api/method/{module_name}.{fn_name}",
-                "description": summary,
-                "input_schema": {
-                    "type": "object",
-                    "required": in_required,
-                    "properties": in_props,
-                },
-                "output_mapping": out_map,
-            })
+                candidates.append({
+                    "action_name": fn_name,
+                    "method": "POST",
+                    "operation": operation_path,
+                    "description": summary,
+                    "input_schema": {
+                        "type": "object",
+                        "required": in_required,
+                        "properties": in_props,
+                    },
+                    "output_mapping": out_map,
+                })
 
     # -------------------------------------------------------------
     # 2. Frappe REST DocType Introspection

@@ -31,7 +31,8 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Chatbot",
-   "options": "Chatbot"
+   "options": "Chatbot",
+   "cascade_on_delete": 1
   },
   {
    "default": "Frappe REST",

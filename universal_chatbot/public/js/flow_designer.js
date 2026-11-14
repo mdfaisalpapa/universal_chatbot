@@ -77,6 +77,9 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                             <span class="flow-toolbar-badge" id="flow-status-badge">Draft</span>
                         </div>
                         <div class="flow-toolbar-right">
+                            <button class="btn btn-default btn-xs" id="btn-auto-layout" title="Automatically organize node layout on canvas">
+                                <i class="fa fa-sitemap text-primary"></i> Auto-Layout
+                            </button>
                             <button class="btn btn-default btn-xs" id="btn-import-flow" title="Import Flow from JSON">
                                 <i class="fa fa-upload"></i> Import Flow
                             </button>
@@ -195,6 +198,25 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                 e.originalEvent.dataTransfer.setData("text/plain", $(this).data("type"));
             });
 
+            // Canvas click deselect & space/drag pan handling
+            let isPanning = false;
+            let panStart = { x: 0, y: 0 };
+            let scrollStart = { left: 0, top: 0 };
+
+            this.$canvasContainer.on("mousedown", function(e) {
+                // If middle-click OR clicked blank canvas background
+                if (e.which === 2 || $(e.target).is("#flow-canvas-container, #flow-canvas, #connections-svg")) {
+                    isPanning = true;
+                    panStart = { x: e.pageX, y: e.pageY };
+                    scrollStart = {
+                        left: me.$canvasContainer.scrollLeft(),
+                        top: me.$canvasContainer.scrollTop()
+                    };
+                    me.$canvasContainer.css("cursor", "grabbing");
+                    e.preventDefault();
+                }
+            });
+
             // Canvas click deselect
             this.$canvas.on("click", function(e) {
                 if ($(e.target).closest(".flow-canvas-node, .flow-node, .node, .flow-port, .flow-properties-panel, #flow-properties-panel, #property-panel").length === 0) {
@@ -292,7 +314,12 @@ window.UniversalChatbot = window.UniversalChatbot || {};
             });
 
             $(document).on("mousemove.flow_designer", function(e) {
-                if (draggingNode) {
+                if (isPanning) {
+                    const dx = e.pageX - panStart.x;
+                    const dy = e.pageY - panStart.y;
+                    me.$canvasContainer.scrollLeft(scrollStart.left - dx);
+                    me.$canvasContainer.scrollTop(scrollStart.top - dy);
+                } else if (draggingNode) {
                     const newX = Math.max(0, e.pageX - dragOffset.x);
                     const newY = Math.max(0, e.pageY - dragOffset.y);
                     draggingNode.css({ left: newX + "px", top: newY + "px" });
@@ -309,6 +336,10 @@ window.UniversalChatbot = window.UniversalChatbot || {};
             });
 
             $(document).on("mouseup.flow_designer", function() {
+                if (isPanning) {
+                    isPanning = false;
+                    me.$canvasContainer.css("cursor", "default");
+                }
                 draggingNode = null;
                 if (me.connectingFrom) {
                     me.connectingFrom = null;
@@ -327,6 +358,7 @@ window.UniversalChatbot = window.UniversalChatbot || {};
             });
 
             // Toolbar buttons
+            this.container.find("#btn-auto-layout").on("click", () => me.autoLayoutNodes());
             this.container.find("#btn-export-flow").on("click", () => me.exportFlow());
             this.container.find("#btn-import-flow").on("click", () => me.importFlow());
             this.container.find("#btn-validate").on("click", () => me.validateFlowUI());
@@ -603,12 +635,13 @@ window.UniversalChatbot = window.UniversalChatbot || {};
             if (!srcNode) return;
             const srcEl = this.$nodesContainer.find(`[data-id="${srcNode.node_id}"]`);
             const rect = this.$canvas[0].getBoundingClientRect();
-            const startX = srcNode.x + srcEl.outerWidth() / 2;
-            const startY = srcNode.y + srcEl.outerHeight();
+            const startX = srcNode.x + srcEl.outerWidth();
+            const startY = srcNode.y + srcEl.outerHeight() / 2;
             const curX = pageX - rect.left + this.$canvasContainer.scrollLeft();
             const curY = pageY - rect.top + this.$canvasContainer.scrollTop();
 
-            const d = `M ${startX} ${startY} C ${startX} ${startY + 40}, ${curX} ${curY - 40}, ${curX} ${curY}`;
+            const dx = Math.max(40, Math.abs(curX - startX) / 2);
+            const d = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${curX - dx} ${curY}, ${curX} ${curY}`;
             this.$tempLine.attr("d", d);
         }
 
@@ -756,14 +789,35 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                 const tgtEl = me.$nodesContainer.find(`[data-id="${t.target_node}"]`);
                 if (!srcEl.length || !tgtEl.length) return;
 
-                const startX = srcNode.x + srcEl.outerWidth() / 2;
-                const startY = srcNode.y + srcEl.outerHeight();
-                const endX = tgtNode.x + tgtEl.outerWidth() / 2;
-                const endY = tgtNode.y;
+                const srcW = srcEl.outerWidth();
+                const srcH = srcEl.outerHeight();
+                const tgtW = tgtEl.outerWidth();
+                const tgtH = tgtEl.outerHeight();
 
-                const dy = Math.max(30, Math.abs(endY - startY) / 2);
-                const path = `M ${startX} ${startY} C ${startX} ${startY + dy}, ${endX} ${endY - dy}, ${endX} ${endY}`;
-                svgHtml += `<path class="flow-connection-path" data-src="${t.source_node}" data-tgt="${t.target_node}" d="${path}" marker-end="url(#arrow)" />`;
+                // Forward connection (Left-to-Right)
+                // Source output is on right edge, target input is on left edge
+                let startX = srcNode.x + srcW;
+                let startY = srcNode.y + srcH / 2;
+                let endX = tgtNode.x;
+                let endY = tgtNode.y + tgtH / 2;
+
+                const isBackwards = (endX < startX - 20);
+                let path = "";
+                let extraClass = "";
+
+                if (isBackwards) {
+                    // Backward return loop (e.g. returning back to menu)
+                    // Route smoothly from right/bottom around in a curved arc to avoid cutting through middle nodes
+                    extraClass = "is-return-loop";
+                    const loopDrop = Math.max(startY, endY) + 50;
+                    path = `M ${startX} ${startY} C ${startX + 80} ${startY}, ${startX + 80} ${loopDrop}, ${(startX + endX) / 2} ${loopDrop} C ${endX - 80} ${loopDrop}, ${endX - 80} ${endY}, ${endX} ${endY}`;
+                } else {
+                    // Smooth horizontal cubic bezier curve
+                    const dx = Math.max(50, (endX - startX) * 0.55);
+                    path = `M ${startX} ${startY} C ${startX + dx} ${startY}, ${endX - dx} ${endY}, ${endX} ${endY}`;
+                }
+
+                svgHtml += `<path class="flow-connection-path ${extraClass}" data-src="${t.source_node}" data-tgt="${t.target_node}" d="${path}" marker-end="url(#arrow)" />`;
             });
             this.$connectionsGroup.html(svgHtml);
         }
@@ -1781,6 +1835,83 @@ window.UniversalChatbot = window.UniversalChatbot || {};
                     });
                 }
             );
+        }
+
+        autoLayoutNodes() {
+            if (!this.nodes || this.nodes.length === 0) return;
+
+            // Build adjacency map & find start node
+            const adj = {};
+            const inDegree = {};
+            this.nodes.forEach(n => {
+                adj[n.node_id] = [];
+                inDegree[n.node_id] = 0;
+            });
+
+            this.transitions.forEach(t => {
+                if (adj[t.source_node]) {
+                    adj[t.source_node].push(t.target_node);
+                }
+                if (inDegree[t.target_node] !== undefined) {
+                    inDegree[t.target_node]++;
+                }
+            });
+
+            const startNode = this.nodes.find(n => normalizeType(n.node_type) === "start") || this.nodes[0];
+            const visited = new Set();
+            const levels = {};
+
+            // BFS to assign topological depth levels
+            const queue = [{ id: startNode.node_id, level: 0 }];
+            visited.add(startNode.node_id);
+
+            while (queue.length > 0) {
+                const { id, level } = queue.shift();
+                if (!levels[level]) levels[level] = [];
+                levels[level].push(id);
+
+                const neighbors = adj[id] || [];
+                neighbors.forEach(nbr => {
+                    if (!visited.has(nbr)) {
+                        visited.add(nbr);
+                        queue.push({ id: nbr, level: level + 1 });
+                    }
+                });
+            }
+
+            // Any disconnected nodes placed in an extra column
+            const unvisited = this.nodes.filter(n => !visited.has(n.node_id));
+            if (unvisited.length > 0) {
+                const maxLevel = Math.max(...Object.keys(levels).map(k => parseInt(k, 10)), 0) + 1;
+                levels[maxLevel] = unvisited.map(n => n.node_id);
+            }
+
+            // Assign clean canvas (x, y) coordinates
+            const colWidth = 280;
+            const rowHeight = 140;
+            const startX = 80;
+            const startY = 80;
+
+            Object.keys(levels).forEach(lvlStr => {
+                const lvl = parseInt(lvlStr, 10);
+                const nodeIds = levels[lvl];
+                const totalH = nodeIds.length * rowHeight;
+                const offsetTop = Math.max(startY, (startY + 400) - (totalH / 2));
+
+                nodeIds.forEach((nid, idx) => {
+                    const nodeObj = this.nodes.find(n => n.node_id === nid);
+                    if (nodeObj) {
+                        nodeObj.x = startX + (lvl * colWidth);
+                        nodeObj.y = offsetTop + (idx * rowHeight);
+                        if (!nodeObj.configuration) nodeObj.configuration = {};
+                        nodeObj.configuration.ui_x = nodeObj.x;
+                        nodeObj.configuration.ui_y = nodeObj.y;
+                    }
+                });
+            });
+
+            this.renderAll();
+            frappe.show_alert({ message: __("Canvas layout automatically organized!"), indicator: "green" });
         }
 
         exportFlow() {

@@ -43,11 +43,17 @@ def export_flow_json(flow_name: str) -> Dict[str, Any]:
     flow_doc = frappe.get_doc("Chatbot Flow", flow_name)
     raw_graph = load_visual_flow(flow_name)
 
-    # Clean nodes (omit internal docnames)
+    # Clean nodes (omit internal docnames and normalize external integration prefixes)
     clean_nodes = []
     for n in raw_graph.get("nodes", []):
         cfg = dict(n.get("configuration") or {})
-        # Remove UI duplicates if already extracted
+        # If node is Call Action, normalize action_name so it is portable across bots/integrations
+        if n.get("node_type") == "Call Action" and cfg.get("action_name"):
+            act = str(cfg["action_name"]).strip()
+            # If formatted as <integration_name>-<action_name>, extract portable bare action_name
+            if "-" in act:
+                cfg["action_name"] = act.split("-", 1)[1]
+
         clean_nodes.append({
             "node_id": n.get("node_id"),
             "node_type": n.get("node_type"),
@@ -151,10 +157,23 @@ def import_flow_json(
             exc=frappe.DuplicateEntryError,
         )
 
-    # Validate graph structure before mutating database
     nodes = payload.get("nodes", [])
     transitions = payload.get("transitions", [])
     variables = payload.get("variables", [])
+
+    # Normalize Call Action nodes so imported flows bind directly to whatever integration the target bot uses
+    for n in nodes:
+        if n.get("node_type") == "Call Action":
+            cfg = n.get("configuration") or {}
+            if isinstance(cfg, str):
+                try:
+                    cfg = json.loads(cfg)
+                except Exception:
+                    cfg = {}
+            act = cfg.get("action_name")
+            if act and "-" in act:
+                cfg["action_name"] = act.split("-", 1)[1]
+            n["configuration"] = cfg
 
     validate_flow_structure({"nodes": nodes, "transitions": transitions, "variables": variables})
 

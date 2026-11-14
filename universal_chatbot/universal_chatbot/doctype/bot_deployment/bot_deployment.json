@@ -43,7 +43,8 @@
    "in_standard_filter": 1,
    "label": "Chatbot",
    "options": "Chatbot",
-   "reqd": 1
+   "reqd": 1,
+   "cascade_on_delete": 1
   },
   {
    "fieldname": "channel",
