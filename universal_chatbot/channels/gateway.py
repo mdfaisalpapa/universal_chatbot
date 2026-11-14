@@ -247,6 +247,8 @@ class ChannelGateway:
         if is_reset_cmd:
             state["current_node"] = None
             state["variables"] = {}
+            if "context" in state:
+                state["context"].pop("phone_number", None)
 
         if "context" not in state:
             state["context"] = {}
@@ -258,8 +260,10 @@ class ChannelGateway:
             or incoming_msg.metadata.get("phone_number")
             or ""
         )
-        if phone_num:
+        if phone_num and not is_logout:
             state["context"]["phone_number"] = phone_num
+        elif is_logout:
+            state["context"].pop("phone_number", None)
 
         flow_id = resolve_flow_for_bot(deployment.chatbot, deployment)
         flow_def = repo.get_flow_definition(flow_id)
