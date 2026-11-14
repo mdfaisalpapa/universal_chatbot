@@ -1,6 +1,81 @@
-UNIVERSAL CHATBOT
-Project Blueprint and Technical Architecture
-Version 1.0Target framework: Frappe v16Deployment model: Hybrid — self-hosted and centrally hostedInitial integration model: API-first
+# UNIVERSAL CHATBOT
+## Project Blueprint, Technical Architecture & Live Implementation Status
+
+**Current Version:** 1.2  
+**Target Framework:** Frappe v16 / ERPNext  
+**Deployment Model:** Hybrid — Self-Hosted & Centrally Hosted Multi-Tenant  
+**Integration Paradigm:** API-First & Deep DocType Connector Architecture  
+**Status Last Updated:** November 14, 2026  
+
+---
+
+## 🚀 Live Implementation Status & Execution Progress
+
+This section tracks completed milestones, live production capabilities, and pending roadmap items across development phases.
+
+### Executive Progress Summary
+
+| Phase | Description | Status | Completion % | Highlights |
+| :--- | :--- | :---: | :---: | :--- |
+| **Phase 1** | **Core Engine & Web Foundation** | **COMPLETED** | **100%** | Pure Python conversation engine, Common Message Protocol, Frappe REST connector, Web Channel widget, Visual Flow Designer. |
+| **Phase 2A** | **Omnichannel Messaging (Telegram & WhatsApp)** | **COMPLETED** | **100%** | Live Telegram webhook adapter, WhatsApp Cloud API adapter, 1-Click native contact sharing (`ReplyKeyboardMarkup`), SSO WebApp tokens, session auto-recovery & logout. |
+| **Phase 2B** | **Glific-Parity Extensions & Human Handover** | **IN PROGRESS** | **35%** | Flow auto-layout (2D responsive grid) & portable flow export/import completed. Live operator desk inbox, broadcast manager, and form collection pending. |
+| **Phase 2C** | **AI Provider & Knowledge Base (RAG)** | **PLANNED** | **0%** | AI model configuration, intent extraction, knowledge chunking & retrieval. |
+| **Phase 3** | **Advanced Integrations & Workflow Automation** | **PLANNED** | **0%** | SQL read connectors, approval routing, private connector daemon agent. |
+| **Phase 4** | **Centrally Hosted Multi-Tenant SaaS Platform** | **PLANNED** | **0%** | Tenant isolation, metering, subscriptions & payment gateways. |
+
+---
+
+### Detailed Milestone Tracking
+
+#### ✅ Completed Work & Live Capabilities
+
+1. **Core Decoupled Conversation Engine (`universal_chatbot/core`, `flow`)**:
+   - Pure Python, zero-Frappe dependency protocol (`IncomingMessage`, `OutgoingResponse`, `SessionStatus`).
+   - `FlowExecutor` traversing directed acyclic and cyclic graphs, pause/resume state persistence in `tabConversation State`.
+   - Variable interpolation engine with safe nested dot-notation (`{{auth_res.unpacked.data.resident_name}}`).
+   - Node registry with built-in standard nodes: `Start`, `Multiple Choice`, `Call Action`, `Ask Question`, `Set Variable`, `Condition`, `End`.
+
+2. **Omnichannel Adapters & Gateways (`universal_chatbot/channels`)**:
+   - **Telegram Channel Adapter**:
+     - Webhook normalization, callback query acking, HTML/Markdown formatting.
+     - **Native Contact Sharing (`ReplyKeyboardMarkup`)**: Native 1-click phone sharing with zero manual typing.
+     - **Telegram WebApp Launcher**: Inline buttons launching bottom-sheet WebApps authenticated via one-time HMAC SSO tokens.
+   - **WhatsApp Channel Adapter**: Meta Cloud API payload normalization, 24-hour service conversation handling, interactive reply formatting.
+   - **Web Channel Adapter**: Embeddable website chat widget with CORS origin enforcement.
+   - **Session Lifecycle & Security**: Auto-clearing session variables on `/start`, `/reset`, and `/logout`; automatic unlinking of `Channel Identity` in Society ERP upon logout.
+
+3. **Visual Flow Designer (`universal_chatbot/public/js/flow_designer.js`)**:
+   - 2D Canvas with click-and-drag panning.
+   - Horizontal cubic Bézier connection routing with dedicated inter-row return arcs.
+   - **Intelligent 2D Grid Auto-Layout**: Responsive wrapping into 3–5 columns based on screen width.
+   - **Portable Flow Export/Import**: JSON export with integration-prefix stripping and automatic target-bot re-binding.
+
+4. **Society ERP Live Demonstration (`society_erp`)**:
+   - Implemented **Option B Dynamic Dispatcher** (`get_resident_menu` & `get_service_details`).
+   - Reduced flow canvas from 58 tangled nodes to an elegant 8-node reusable graph.
+   - Full live self-service access to Flat Details, Maintenance Dues, Financials, Gate Pass generation, Domestic Staff, Vehicles, and Voting.
+
+---
+
+#### ⏳ Pending Work & Current Roadmap
+
+1. **Phase 2B (Glific-Parity Extensions & Live Agent)**:
+   - [ ] **Desk Live Chat Inbox (`/app/chatbot-inbox`)**: Workspace page for estate office staff to view chats, claim conversations, send manual replies, and resume bot.
+   - [ ] **`Chatbot Broadcast Campaign`**: Outbound campaign scheduler for targeted announcements (e.g. water outages, AGM alerts) honoring `Channel Consent`.
+   - [ ] **`Form Collection` Node**: Multi-field structured input node with regex validation and direct DocType creation.
+   - [ ] **`Chatbot Analytics Snapshot`**: Conversational funnel drop-off analytics and response-time SLAs.
+
+2. **Phase 2C (AI & Knowledge Retrieval)**:
+   - [ ] AI Provider abstraction (OpenAI, Gemini, Local LLMs) with token budgets and strict execution boundaries.
+   - [ ] Document chunking and vector retrieval for bylaws and circular FAQs.
+
+3. **Phase 3 (Enterprise Workflows)**:
+   - [ ] Multi-level committee approvals via chat buttons.
+   - [ ] Read-only direct SQL connectors for legacy external databases.
+
+---
+
 Document purpose
 This document consolidates the agreed vision, architecture, functional scope, data model, security principles, deployment strategy and implementation roadmap for Universal Chatbot. It is intended to serve as the baseline specification for implementation.
 1. Project Vision
