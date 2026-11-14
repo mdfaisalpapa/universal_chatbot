@@ -507,3 +507,25 @@ def import_flow_json(
     from universal_chatbot.flow.export_import import import_flow_json as _import
     return _import(flow_json=flow_json, bot_slug=bot_slug, overwrite=overwrite)
 
+
+@frappe.whitelist()
+def export_bot_package(
+    bot_name: str,
+    include_credentials: Any = False,
+) -> Dict[str, Any]:
+    """Export complete chatbot package (metadata, integrations, flows, channels, deployments)."""
+    from universal_chatbot.flow.bot_export_import import export_bot_package as _export_pkg
+    return _export_pkg(bot_name=bot_name, include_credentials=include_credentials)
+
+
+@frappe.whitelist()
+def import_bot_package(
+    package_json: Any,
+    target_bot_slug: Optional[str] = None,
+    overwrite: Any = False,
+) -> Dict[str, Any]:
+    """Import complete chatbot package and provision all linked resources."""
+    from universal_chatbot.flow.bot_export_import import import_bot_package as _import_pkg
+    return _import_pkg(package_json=package_json, target_bot_slug=target_bot_slug, overwrite=overwrite)
+
+

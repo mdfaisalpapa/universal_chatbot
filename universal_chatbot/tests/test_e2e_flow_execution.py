@@ -22,6 +22,14 @@ class TestE2EFlowExecution(unittest.TestCase):
 
     def ensure_kvc3_fixtures(self):
         """Ensure test bot, deployment, and channel are configured."""
+        if not frappe.db.exists("Chatbot", "kvc3_bot"):
+            frappe.get_doc({
+                "doctype": "Chatbot",
+                "bot_name": "kvc3_bot",
+                "title": "KVC3 Test Bot",
+                "status": "Active",
+            }).insert(ignore_permissions=True)
+
         if not frappe.db.exists("Bot Channel", "Website Channel"):
             frappe.get_doc({
                 "doctype": "Bot Channel",

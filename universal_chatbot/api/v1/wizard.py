@@ -239,7 +239,13 @@ def get_bot_config(bot_slug: str) -> Dict[str, Any]:
         frappe.throw(_("Chatbot '{0}' not found.").format(slug), exc=frappe.DoesNotExistError)
 
     chatbot_doc = frappe.get_doc("Chatbot", slug)
-    base_host = frappe.utils.get_url()
+    base_host = (frappe.conf.get("host_name") or "").rstrip("/")
+    if not base_host:
+        req = getattr(frappe.local, "request", None)
+        if req and getattr(req, "host_url", None):
+            base_host = str(req.host_url).rstrip("/")
+        else:
+            base_host = frappe.utils.get_url().rstrip("/")
 
     # Get channels
     channels_data = {}
@@ -647,7 +653,13 @@ def quick_create_bot(
     channels = channels or []
 
     created_deployments = []
-    base_host = frappe.utils.get_url()
+    base_host = (frappe.conf.get("host_name") or "").rstrip("/")
+    if not base_host:
+        req = getattr(frappe.local, "request", None)
+        if req and getattr(req, "host_url", None):
+            base_host = str(req.host_url).rstrip("/")
+        else:
+            base_host = frappe.utils.get_url().rstrip("/")
 
     for ch_cfg in channels:
         ch_type = ch_cfg.get("channel_type") or ch_cfg.get("type")
@@ -2032,6 +2044,129 @@ def import_discovered_actions(
         "message": _("Successfully imported {0} action(s).").format(len(imported_names)),
         "imported_actions": imported_names,
     }
+
+
+@frappe.whitelist()
+def set_telegram_webhook(channel_name: Optional[str] = None, bot_slug: Optional[str] = None, webhook_url: Optional[str] = None) -> Dict[str, Any]:
+    """Register or update the Telegram bot webhook with Telegram's Bot API (setWebhook).
+
+    Fetches the decrypted bot_token and webhook_secret from the Bot Channel,
+    and calls: https://api.telegram.org/bot<token>/setWebhook?url=<webhook_url>&secret_token=<secret>
+    """
+    frappe.has_permission("Bot Channel", "write", throw=True)
+    import requests
+    from frappe.utils.password import get_decrypted_password
+
+    # 1. Resolve channel doc
+    ch_doc = None
+    if channel_name and frappe.db.exists("Bot Channel", channel_name):
+        ch_doc = frappe.get_doc("Bot Channel", channel_name)
+    elif bot_slug:
+        ch_name = frappe.db.get_value("Bot Channel", {"chatbot": bot_slug, "channel_type": "Telegram"}, "name")
+        if ch_name:
+            ch_doc = frappe.get_doc("Bot Channel", ch_name)
+
+    if not ch_doc:
+        frappe.throw(_("Telegram Bot Channel not found for the given channel_name or bot_slug."))
+
+    if ch_doc.channel_type != "Telegram":
+        frappe.throw(_("Channel '{0}' is not a Telegram channel.").format(ch_doc.name))
+
+    # 2. Get bot token
+    bot_token = None
+    if ch_doc.telegram_bot_token:
+        try:
+            bot_token = get_decrypted_password("Bot Channel", ch_doc.name, "telegram_bot_token")
+        except Exception:
+            bot_token = ch_doc.telegram_bot_token
+
+    if not bot_token:
+        frappe.throw(_("Telegram Bot Token is not configured for channel '{0}'.").format(ch_doc.name))
+
+    # 3. Determine webhook URL
+    target_url = (webhook_url or "").strip()
+    if not target_url:
+        # Resolve from active deployment
+        dep_name = ch_doc.deployment
+        if not dep_name:
+            dep_name = frappe.db.get_value("Bot Deployment", {"channel": ch_doc.name}, "name")
+
+        if dep_name:
+            dep_doc = frappe.get_doc("Bot Deployment", dep_name)
+            base_host = (frappe.conf.get("host_name") or "").rstrip("/")
+            if not base_host:
+                req = getattr(frappe.local, "request", None)
+                if req and getattr(req, "host_url", None):
+                    base_host = str(req.host_url).rstrip("/")
+                else:
+                    base_host = frappe.utils.get_url().rstrip("/")
+            target_url = f"{base_host}/api/method/universal_chatbot.api.v1.webhook.telegram_webhook?deployment_key={dep_doc.deployment_key}"
+        else:
+            frappe.throw(_("No active deployment linked to channel '{0}' to determine webhook URL.").format(ch_doc.name))
+
+    if not target_url.startswith("https://"):
+        frappe.throw(_("Telegram requires a public HTTPS URL for webhooks. Found: {0}").format(target_url))
+
+    # 4. Prepare parameters
+    params = {"url": target_url}
+    if ch_doc.telegram_webhook_secret:
+        params["secret_token"] = ch_doc.telegram_webhook_secret
+
+    # 5. Call Telegram API
+    telegram_api_url = f"https://api.telegram.org/bot{bot_token}/setWebhook"
+    try:
+        resp = requests.post(telegram_api_url, json=params, timeout=15)
+        resp_data = resp.json()
+    except Exception as e:
+        frappe.throw(_("Failed to connect to Telegram API: {0}").format(str(e)))
+
+    if not resp_data.get("ok"):
+        error_desc = resp_data.get("description", "Unknown error from Telegram API")
+        frappe.throw(_("Telegram setWebhook failed: {0}").format(error_desc))
+
+    return {
+        "status": "success",
+        "message": _("Telegram webhook registered successfully!"),
+        "webhook_url": target_url,
+        "telegram_response": resp_data,
+    }
+
+
+@frappe.whitelist()
+def get_telegram_webhook_info(channel_name: Optional[str] = None, bot_slug: Optional[str] = None) -> Dict[str, Any]:
+    """Retrieve current webhook status from Telegram's Bot API (getWebhookInfo)."""
+    frappe.has_permission("Bot Channel", "read", throw=True)
+    import requests
+    from frappe.utils.password import get_decrypted_password
+
+    ch_doc = None
+    if channel_name and frappe.db.exists("Bot Channel", channel_name):
+        ch_doc = frappe.get_doc("Bot Channel", channel_name)
+    elif bot_slug:
+        ch_name = frappe.db.get_value("Bot Channel", {"chatbot": bot_slug, "channel_type": "Telegram"}, "name")
+        if ch_name:
+            ch_doc = frappe.get_doc("Bot Channel", ch_name)
+
+    if not ch_doc:
+        frappe.throw(_("Telegram Bot Channel not found."))
+
+    bot_token = None
+    if ch_doc.telegram_bot_token:
+        try:
+            bot_token = get_decrypted_password("Bot Channel", ch_doc.name, "telegram_bot_token")
+        except Exception:
+            bot_token = ch_doc.telegram_bot_token
+
+    if not bot_token:
+        frappe.throw(_("Telegram Bot Token is not configured."))
+
+    telegram_api_url = f"https://api.telegram.org/bot{bot_token}/getWebhookInfo"
+    try:
+        resp = requests.get(telegram_api_url, timeout=10)
+        return resp.json()
+    except Exception as e:
+        frappe.throw(_("Failed to query Telegram getWebhookInfo: {0}").format(str(e)))
+
 
 
 

@@ -25,6 +25,18 @@ frappe.ui.form.on("Chatbot", {
                     frm.save();
                 }, __("Actions"));
             }
+
+            // Export Complete Bot Package (Integrations + Flows + Channels + Deployments)
+            frm.add_custom_button(__("📤 Export Bot Package"), function() {
+                openExportBotDialog(frm);
+            }, __("Actions"));
+
+            // Import / Clone Bot Package into this or new bot
+            frm.add_custom_button(__("📥 Import Bot Package"), function() {
+                openImportBotPackageDialog(function() {
+                    frm.reload_doc();
+                });
+            }, __("Actions"));
         } else {
             // New bot: Offer Guided Setup Wizard
             frm.add_custom_button(__("✨ Guided Bot Setup"), function() {
@@ -656,9 +668,14 @@ function renderChannelManagement(frm) {
                                 Token: <code>${tg.telegram_bot_token ? '••••••••' : 'Not configured'}</code>
                             </div>
                             ${hasTg && tgDep && tgDep.webhook_url ? `
-                                <button type="button" class="btn btn-default btn-xs btn-copy-text" data-text="${escapeHtml(tgDep.webhook_url)}" style="width:100%; font-size:11px;">
-                                    <i class="fa fa-link"></i> ${__("Copy Webhook URL")}
-                                </button>
+                                <div style="display:flex; gap:6px;">
+                                    <button type="button" class="btn btn-default btn-xs btn-copy-text" data-text="${escapeHtml(tgDep.webhook_url)}" style="flex:1; font-size:11px;">
+                                        <i class="fa fa-link"></i> ${__("Copy Webhook URL")}
+                                    </button>
+                                    <button type="button" class="btn btn-primary btn-xs btn-set-telegram-webhook" data-channel="${escapeHtml(tg.name)}" data-url="${escapeHtml(tgDep.webhook_url)}" title="${__("Register Webhook with Telegram API")}" style="font-size:11px;">
+                                        <i class="fa fa-paper-plane"></i> ${__("Set Webhook")}
+                                    </button>
+                                </div>
                             ` : `
                                 <button type="button" class="btn btn-default btn-xs btn-add-channel-modal" style="width:100%; font-size:11px;">
                                     <i class="fa fa-plus"></i> ${__("Connect Telegram")}
@@ -671,11 +688,50 @@ function renderChannelManagement(frm) {
 
             $wrapper.html(html);
 
-            // Wire copy buttons
+            // Wire copy buttons with fallback
             $wrapper.find(".btn-copy-text").off("click").on("click", function() {
-                const text = $(this).data("text");
-                navigator.clipboard.writeText(text);
-                frappe.show_alert({ message: __("Copied to clipboard!"), indicator: "green" });
+                const text = $(this).attr("data-text") || $(this).data("text");
+                if (!text) {
+                    frappe.msgprint(__("No text found to copy."));
+                    return;
+                }
+                copyTextToClipboard(text);
+            });
+
+            // Wire "Set Webhook" for Telegram
+            $wrapper.find(".btn-set-telegram-webhook").off("click").on("click", function() {
+                const channelName = $(this).attr("data-channel");
+                const webhookUrl = $(this).attr("data-url");
+
+                frappe.confirm(
+                    __("Register this webhook URL directly with Telegram's Bot API?<br><br><code>{0}</code>", [escapeHtml(webhookUrl)]),
+                    function() {
+                        frappe.call({
+                            method: "universal_chatbot.api.v1.wizard.set_telegram_webhook",
+                            args: {
+                                channel_name: channelName,
+                                webhook_url: webhookUrl
+                            },
+                            freeze: true,
+                            freeze_message: __("Calling Telegram API setWebhook..."),
+                            callback: function(res) {
+                                if (res.message && res.message.status === "success") {
+                                    frappe.msgprint({
+                                        title: __("Telegram Webhook Configured"),
+                                        indicator: "green",
+                                        message: `
+                                            <div style="font-size:13px;">
+                                                <p style="color:#15803d; font-weight:600;">✓ ${res.message.message}</p>
+                                                <p style="margin:4px 0;"><strong>Webhook URL:</strong> <code>${escapeHtml(res.message.webhook_url)}</code></p>
+                                                <p style="margin:4px 0; color:#64748b; font-size:11px;">Telegram is now actively pushing all resident chat messages to this endpoint.</p>
+                                            </div>
+                                        `
+                                    });
+                                }
+                            }
+                        });
+                    }
+                );
             });
 
             // Wire "+ Add Connection" / "Connect Channel"
@@ -716,6 +772,44 @@ function renderChannelManagement(frm) {
 
 function escapeHtml(text) {
     return (text || "").toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+function copyTextToClipboard(text) {
+    if (!text) return;
+
+    if (frappe.utils && frappe.utils.copy_to_clipboard) {
+        frappe.utils.copy_to_clipboard(text);
+        frappe.show_alert({ message: __("Copied to clipboard!"), indicator: "green" });
+        return;
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function() {
+            frappe.show_alert({ message: __("Copied to clipboard!"), indicator: "green" });
+        }).catch(function() {
+            fallbackCopy(text);
+        });
+    } else {
+        fallbackCopy(text);
+    }
+}
+
+function fallbackCopy(text) {
+    const textArea = document.createElement("textarea");
+    textArea.value = text;
+    textArea.style.position = "fixed";
+    textArea.style.top = "-9999px";
+    textArea.style.left = "-9999px";
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    try {
+        document.execCommand("copy");
+        frappe.show_alert({ message: __("Copied to clipboard!"), indicator: "green" });
+    } catch (err) {
+        frappe.msgprint(__("Could not copy automatically. Text: {0}", [text]));
+    }
+    document.body.removeChild(textArea);
 }
 
 /**
@@ -1702,3 +1796,206 @@ function openDiscoverActionsDialog(frm, integrationName, integrationType, integO
 
     d.show();
 }
+
+/**
+ * =========================================================================
+ * 4. FULL BOT PACKAGE EXPORT & IMPORT DIALOGS
+ * =========================================================================
+ */
+function openExportBotDialog(frm) {
+    if (!frm || !frm.doc || !frm.doc.name) return;
+    const botSlug = frm.doc.name;
+
+    const d = new frappe.ui.Dialog({
+        title: __("📤 Export Complete Bot Package"),
+        fields: [
+            {
+                fieldname: "info_html",
+                fieldtype: "HTML",
+                options: `
+                    <div style="padding:10px 12px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; color:#1e40af; font-size:12px; margin-bottom:12px;">
+                        <strong>📦 Universal Bot Package Export</strong>
+                        <p style="margin:4px 0 0 0; color:#3b82f6;">
+                            This will bundle the entire bot definition, all REST integrations & actions,
+                            all visual conversation flows (nodes, transitions, variables), and omnichannel
+                            channels & deployments into a single portable schema.
+                        </p>
+                    </div>
+                `
+            },
+            {
+                label: __("Include Secret Credentials (API Keys, Webhook Secrets, Tokens)"),
+                fieldname: "include_credentials",
+                fieldtype: "Check",
+                default: 0,
+                description: __("Caution: When enabled, decrypted secrets are exported. Leave unchecked for safe public sharing or version control.")
+            }
+        ],
+        primary_action_label: __("Download Export Package (.json)"),
+        primary_action: function() {
+            const includeCreds = d.get_value("include_credentials") ? 1 : 0;
+            frappe.call({
+                method: "universal_chatbot.flow.bot_export_import.export_bot_package",
+                args: {
+                    bot_name: botSlug,
+                    include_credentials: includeCreds
+                },
+                freeze: true,
+                freeze_message: __("Packaging complete bot with integrations, flows & omnichannel deployments..."),
+                callback: function(r) {
+                    if (r.message) {
+                        d.hide();
+                        const jsonStr = JSON.stringify(r.message, null, 2);
+                        const blob = new Blob([jsonStr], { type: "application/json" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = `${botSlug}_full_package.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        frappe.show_alert({
+                            message: __("Bot Package exported successfully ({0} integrations, {1} flows, {2} deployments)", [
+                                (r.message.integrations || []).length,
+                                (r.message.flows || []).length,
+                                (r.message.deployments || []).length
+                            ]),
+                            indicator: "green"
+                        });
+                    }
+                }
+            });
+        }
+    });
+
+    d.show();
+}
+
+function openImportBotPackageDialog(onSuccess) {
+    let fileContent = null;
+
+    const d = new frappe.ui.Dialog({
+        title: __("📥 Import Complete Bot Package"),
+        fields: [
+            {
+                fieldname: "info_html",
+                fieldtype: "HTML",
+                options: `
+                    <div style="padding:10px 12px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:6px; color:#166534; font-size:12px; margin-bottom:12px;">
+                        <strong>🚀 Universal Bot Package Importer</strong>
+                        <p style="margin:4px 0 0 0; color:#15803d;">
+                            Upload an exported bot package to provision the complete bot, its REST integrations & actions,
+                            all conversation flows, and all omnichannel deployment channels (Telegram, WhatsApp, Web).
+                        </p>
+                    </div>
+                `
+            },
+            {
+                label: __("Bot Package JSON File"),
+                fieldname: "package_file",
+                fieldtype: "Attach",
+                reqd: 0,
+                description: __("Upload an exported .json bot package file."),
+                onchange: function() {
+                    const fileUrl = d.get_value("package_file");
+                    if (fileUrl) {
+                        fetch(fileUrl)
+                            .then(res => res.text())
+                            .then(text => {
+                                fileContent = text;
+                                d.set_value("package_json_preview", text.substring(0, 500) + (text.length > 500 ? "..." : ""));
+                                try {
+                                    const parsed = JSON.parse(text);
+                                    if (parsed.bot && parsed.bot.bot_name && !d.get_value("target_bot_slug")) {
+                                        d.set_value("target_bot_slug", parsed.bot.bot_name);
+                                    }
+                                } catch (e) {
+                                    // ignore preview error
+                                }
+                            })
+                            .catch(err => {
+                                frappe.msgprint(__("Error reading file: {0}", [err.message]));
+                            });
+                    }
+                }
+            },
+            {
+                label: __("Or Paste Package JSON Directly"),
+                fieldname: "package_json_raw",
+                fieldtype: "Code",
+                options: "JSON",
+                description: __("Optionally paste the complete JSON payload directly.")
+            },
+            {
+                fieldname: "col_break_1",
+                fieldtype: "Column Break"
+            },
+            {
+                label: __("Target Bot Slug / Identifier"),
+                fieldname: "target_bot_slug",
+                fieldtype: "Data",
+                description: __("Slug for the newly provisioned bot (e.g. resident_support). Leave blank to use bot name from package.")
+            },
+            {
+                label: __("Overwrite Existing Bot & Channels"),
+                fieldname: "overwrite",
+                fieldtype: "Check",
+                default: 0,
+                description: __("If checked, existing bot definition, flows, and deployments with matching names will be safely updated.")
+            },
+            {
+                label: __("Payload Preview"),
+                fieldname: "package_json_preview",
+                fieldtype: "Small Text",
+                read_only: 1
+            }
+        ],
+        primary_action_label: __("Import & Provision Bot"),
+        primary_action: function() {
+            const rawJson = d.get_value("package_json_raw");
+            const finalPayload = (rawJson && rawJson.trim()) ? rawJson.trim() : fileContent;
+
+            if (!finalPayload) {
+                frappe.msgprint(__("Please attach a valid Bot Package .json file or paste JSON content."));
+                return;
+            }
+
+            frappe.call({
+                method: "universal_chatbot.flow.bot_export_import.import_bot_package",
+                args: {
+                    package_json: finalPayload,
+                    target_bot_slug: d.get_value("target_bot_slug") || null,
+                    overwrite: d.get_value("overwrite") ? 1 : 0
+                },
+                freeze: true,
+                freeze_message: __("Importing bot, integrations, flows, and omnichannel deployments..."),
+                callback: function(r) {
+                    if (r.message && r.message.status === "success") {
+                        d.hide();
+                        frappe.msgprint({
+                            title: __("Bot Imported Successfully"),
+                            indicator: "green",
+                            message: `
+                                <div style="font-size:13px;">
+                                    <strong>${r.message.message}</strong>
+                                    <ul style="margin-top:8px; padding-left:18px;">
+                                        <li>${__("Integrations")}: <strong>${r.message.integrations_count}</strong></li>
+                                        <li>${__("Actions")}: <strong>${r.message.actions_count}</strong></li>
+                                        <li>${__("Flows")}: <strong>${r.message.flows_count}</strong></li>
+                                        <li>${__("Deployments")}: <strong>${r.message.deployments_count}</strong></li>
+                                    </ul>
+                                </div>
+                            `
+                        });
+                        if (onSuccess) onSuccess();
+                        frappe.set_route("Form", "Chatbot", r.message.bot_name);
+                    }
+                }
+            });
+        }
+    });
+
+    d.show();
+}
+

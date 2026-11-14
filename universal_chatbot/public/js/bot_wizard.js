@@ -621,9 +621,16 @@ window.UniversalChatbot = window.UniversalChatbot || {};
             `);
 
             $sWrapper.find(".btn-copy-url").on("click", function() {
-                const text = $(this).data("url");
-                navigator.clipboard.writeText(text);
-                frappe.show_alert({ message: __("Copied to clipboard!"), indicator: "green" });
+                const text = $(this).attr("data-url") || $(this).data("url");
+                if (text) {
+                    if (frappe.utils && frappe.utils.copy_to_clipboard) {
+                        frappe.utils.copy_to_clipboard(text);
+                        frappe.show_alert({ message: __("Copied to clipboard!"), indicator: "green" });
+                    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(text);
+                        frappe.show_alert({ message: __("Copied to clipboard!"), indicator: "green" });
+                    }
+                }
             });
 
             successDialog.show();
